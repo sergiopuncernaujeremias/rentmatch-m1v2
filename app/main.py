@@ -6,6 +6,7 @@ import streamlit as st
 from datetime import datetime
 from openai import OpenAI
 import requests  # para conectar con n8n
+import re
 
 # ------------------------------
 # Configuración inicial
@@ -160,6 +161,155 @@ def make_summary(slots: dict) -> str:
         f"{amu_txt}, {mas_txt}."
     )
 
+SPANISH_MONTHS = {
+    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+    "julio": 7, "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10,
+    "noviembre": 11, "diciembre": 12
+}
+
+def parse_number(text: str) -> int | None:
+    """Extrae el primer número razonable del texto (soporta 1.200, 1 200, 1200, 1.200,50 -> 1200)."""
+    if not text:
+        return None
+    m = re.search(r"(\d{1,3}(?:[.\s]\d{3})+|\d+)(?:[.,]\d+)?", text)
+    if not m:
+        return None
+    num = m.group(0)
+    # Quitar separadores de miles . o espacios
+    num = re.sub(r"[.\s]", "", num)
+    # Si hay coma como decimal, ignórala para estos campos (precio, m2)
+    num = num.split(",")[0]
+    try:
+        return int(float(num))
+    except:
+        return None
+
+def parse_bool(text: str) -> bool | None:
+    """Convierte respuestas tipo sí/no en True/False. Busca palabras típicas."""
+    if not text:
+        return None
+    t = text.strip().lower()
+    yes = {"si", "sí", "yes", "true", "con", "tiene", "hay", "permitido", "permiten"}
+    no = {"no", "false", "sin", "no hay", "no permitido", "no permiten"}
+    # señales fuertes
+    if any(w in t for w in ["no ", " sin", "no.", "no,", "no\t"]) and not any(w in t for w in ["sí", "si"]):
+        return False
+    if any(w in t.split() for w in yes):
+        return True
+    if any(w in t.split() for w in no):
+        return False
+    return None
+
+def parse_date_es(text: str) -> str | None:
+    """
+    Intenta devolver YYYY-MM-DD a partir de formatos:
+    - YYYY-MM-DD
+    - DD/MM/YYYY o DD-MM-YYYY
+    - '15 de diciembre de 2025'
+    - 'inmediata' -> hoy
+    """
+    if not text:
+        return None
+    t = text.strip().lower()
+
+    # inmediata
+    if "inmediata" in t or "ya" in t or "hoy" in t:
+        return datetime.today().date().isoformat()
+
+    # ISO directo
+    m = re.match(r"^\s*(\d{4})-(\d{2})-(\d{2})\s*$", t)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+
+    # DD/MM/YYYY o DD-MM-YYYY
+    m = re.match(r"^\s*(\d{1,2})[/-](\d{1,2})[/-](\d{4})\s*$", t)
+    if m:
+        dd, mm, yyyy = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        try:
+            return datetime(yyyy, mm, dd).date().isoformat()
+        except:
+            return None
+
+    # '15 de diciembre de 2025'
+    m = re.match(r"^\s*(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})\s*$", t)
+    if m:
+        dd = int(m.group(1))
+        mes = m.group(2).replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u")
+        yyyy = int(m.group(3))
+        mm = SPANISH_MONTHS.get(mes, 0)
+        if mm:
+            try:
+                return datetime(yyyy, mm, dd).date().isoformat()
+            except:
+                return None
+
+    return None
+
+def normalize_field(field: str, text: str, *, smart_fallback: bool = bool(int(os.getenv("SMART_FALLBACK", "0")))) -> object:
+    """
+    Devuelve el valor normalizado para un campo dado.
+    No llama a GPT salvo que smart_fallback esté activo y la normalización local falle.
+    """
+    if text is None:
+        return None
+    raw = text.strip()
+
+    if field == "precio":
+        v = parse_number(raw)
+        if v is not None:
+            return v
+    elif field == "m2":
+        v = parse_number(raw)
+        if v is not None:
+            return v
+    elif field in ("habitaciones", "banos", "planta"):
+        v = parse_number(raw)
+        # Tratamientos semánticos sencillos para planta
+        if v is None and field == "planta":
+            low = raw.lower()
+            if "bajo" in low:
+                return 0
+            if "principal" in low:
+                return 1
+        if v is not None:
+            return v
+    elif field in ("ascensor", "amueblado", "mascotas"):
+        v = parse_bool(raw)
+        if v is not None:
+            return v
+    elif field == "disponibilidad":
+        v = parse_date_es(raw)
+        if v is not None:
+            return v
+    elif field == "barrio_ciudad":
+        # Limpieza básica; más normalización vendrá en M2 si queréis
+        return raw
+
+    # Si no pudimos normalizar y tenemos fallback “barato” activado:
+    if smart_fallback:
+        try:
+            prompt = f"Extrae solo el valor atómico para el campo '{field}' a partir del texto entre <t>:</t>. " \
+                     f"Responde sin explicación. Si es precio/m2/enteros: un número. Si es booleano: true/false. " \
+                     f"Si es fecha: YYYY-MM-DD. Texto: <t>{raw}</t>"
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0
+            )
+            ans = resp.choices[0].message.content.strip()
+            # Post-procesado mínimo
+            if field in ("precio", "m2", "habitaciones", "banos", "planta"):
+                return parse_number(ans)
+            if field in ("ascensor", "amueblado", "mascotas"):
+                return True if "true" in ans.lower() or "sí" in ans.lower() or "si" in ans.lower() else False if "false" in ans.lower() or "no" in ans.lower() else None
+            if field == "disponibilidad":
+                return parse_date_es(ans) or ans
+            return ans
+        except Exception:
+            pass
+
+    # Último recurso: devolver el texto crudo (como antes)
+    return raw
 
 # ------------------------------
 # Interfaz Streamlit
@@ -205,15 +355,14 @@ def app():
                 missing = missing_required(st.session_state.slots)
                 if missing:
                     field = missing[0]
-                    st.session_state.slots[field] = prompt
+                    value = normalize_field(field, prompt)
+                    st.session_state.slots[field] = value
                     missing = missing_required(st.session_state.slots)
                     if missing:
                         q = make_questions(st.session_state.slots)[0]
                         st.session_state.messages.append({"role": "assistant", "content": q})
                     else:
-                        st.session_state.messages.append(
-                            {"role": "assistant", "content": "¡Listo! Revisa la ficha y pulsa Guardar."}
-                        )
+                        st.session_state.messages.append({"role": "assistant", "content": "¡Listo! Revisa la ficha y pulsa Guardar."})
                 else:
                     st.session_state.messages.append(
                         {"role": "assistant", "content": "He anotado tu comentario. Puedes ajustar en la ficha de la derecha."}
