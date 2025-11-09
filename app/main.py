@@ -322,6 +322,21 @@ def init_state():
     if "descripcion_original" not in st.session_state:
         st.session_state.descripcion_original = ""
 
+APP_CSS = """
+<style>
+/* Contenedor tipo “card” */
+.rm-card {
+  border: 1px solid #e6e6e6; border-radius: 16px; padding: 16px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.04); background: #fff;
+}
+.rm-chip {
+  display:inline-block; padding:4px 10px; border-radius:999px;
+  border:1px solid #e6e6e6; margin-right:6px; font-size:12px;
+  background:#fafafa;
+}
+.rm-muted { color:#666; font-size:12px; }
+</style>
+"""
 
 def app():
     st.set_page_config(page_title="RentMatch AI — Alta del piso", page_icon="🏠", layout="wide")
