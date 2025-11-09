@@ -325,17 +325,57 @@ def init_state():
 
 def app():
     st.set_page_config(page_title="RentMatch AI — Alta del piso", page_icon="🏠", layout="wide")
-    st.title("M1 — Alta conversacional del piso")
-    st.caption("Describe tu piso con tus palabras. Te preguntaré solo lo imprescindible.")
+    st.markdown(APP_CSS, unsafe_allow_html=True)
+
+    # Header
+    colh1, colh2 = st.columns([1, 4])
+    with colh1:
+        st.write("### 🏠")
+    with colh2:
+        st.write("# RentMatch AI — M1")
+        st.caption("Alta conversacional del piso · Demo Cloud")
+
+    # Sidebar con estado y acciones rápidas
+    with st.sidebar:
+        st.write("### Progreso")
+        done = sum(1 for k in REQUIRED_SLOTS if st.session_state.get("slots", {}).get(k))
+        st.progress(done/len(REQUIRED_SLOTS))
+        st.write(f"Completados: **{done}/{len(REQUIRED_SLOTS)}**")
+
+        st.write("### Pasos")
+        st.markdown(
+            "- 1) Describe el piso\n"
+            "- 2) Responde a lo que falte\n"
+            "- 3) Revisa y **Guarda**"
+        )
+        st.write("### Enlaces")
+        st.markdown(
+            "- Supabase (si conectado)\n"
+            "- n8n Webhook (si configurado)",
+        )
+        st.divider()
+        st.write("### Info")
+        st.markdown("<span class='rm-muted'>Los datos se normalizan localmente y se envían a n8n al guardar.</span>", unsafe_allow_html=True)
+
+    # Estado inicial
     init_state()
     ensure_csv_schema()
 
-    col1, col2 = st.columns([3, 2])
-    with col1:
+    # Tabs principales
+    tab_chat, tab_ficha, tab_datos = st.tabs(["💬 Conversación", "🧾 Ficha", "📊 Datos & Hooks"])
+
+    # ===== TAB: Conversación =====
+    with tab_chat:
+        st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
+        st.subheader("Describe tu piso")
+        st.caption("Escribe libremente. Solo te preguntaremos lo imprescindible.")
+
+        # Histórico de chat
         for msg in st.session_state.messages:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-        prompt = st.chat_input("Escribe aquí la descripción del piso o responde a las preguntas…")
+            role = "🤖" if msg["role"] == "assistant" else "👤"
+            st.markdown(f"**{role}** {msg['content']}")
+
+        prompt = st.chat_input("Escribe la descripción o responde a las preguntas…")
         if prompt:
             st.session_state.messages.append({"role": "user", "content": prompt})
             if not st.session_state.descripcion_original:
@@ -347,9 +387,10 @@ def app():
                         st.session_state.slots[k] = extracted[k]
                 questions = make_questions(st.session_state.slots)
                 if questions:
-                    bot = "Gracias. Me faltan algunos datos:\n- " + "\n- ".join(questions)
+                    chips = " ".join([f"<span class='rm-chip'>{q}</span>" for q in questions])
+                    bot = "Gracias. Me faltan algunos datos:<br/>" + chips
                 else:
-                    bot = "Perfecto, ya tengo lo necesario. Revisa la ficha a la derecha y pulsa Guardar."
+                    bot = "Perfecto, ya tengo lo necesario. Ve a **Ficha** para revisar y guardar."
                 st.session_state.messages.append({"role": "assistant", "content": bot})
             else:
                 missing = missing_required(st.session_state.slots)
@@ -362,27 +403,43 @@ def app():
                         q = make_questions(st.session_state.slots)[0]
                         st.session_state.messages.append({"role": "assistant", "content": q})
                     else:
-                        st.session_state.messages.append({"role": "assistant", "content": "¡Listo! Revisa la ficha y pulsa Guardar."})
+                        st.session_state.messages.append({"role": "assistant", "content": "¡Listo! Revisa la **Ficha** y pulsa **Guardar**."})
                 else:
-                    st.session_state.messages.append(
-                        {"role": "assistant", "content": "He anotado tu comentario. Puedes ajustar en la ficha de la derecha."}
-                    )
+                    st.session_state.messages.append({"role": "assistant", "content": "He anotado tu comentario. Ajusta en **Ficha** si lo necesitas."})
 
-    with col2:
-        st.subheader("Ficha generada")
-        with st.expander("Campos (editar si hace falta)", expanded=True):
-            for k in ALL_SLOTS:
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ===== TAB: Ficha =====
+    with tab_ficha:
+        st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
+        st.subheader("Ficha del anuncio")
+
+        # Campos en dos columnas
+        c1, c2 = st.columns(2)
+        with c1:
+            for k in ["precio", "barrio_ciudad", "m2", "habitaciones", "banos", "disponibilidad"]:
+                v = st.session_state.slots.get(k)
+                st.session_state.slots[k] = st.text_input(k, value="" if v is None else str(v))
+        with c2:
+            for k in ["planta", "ascensor", "amueblado", "mascotas", "estado"]:
                 v = st.session_state.slots.get(k)
                 st.session_state.slots[k] = st.text_input(k, value="" if v is None else str(v))
 
         st.write("---")
-        st.subheader("Resumen para el anuncio")
-        st.write(make_summary(st.session_state.slots))
+        st.write("**Resumen:**")
+        st.info(make_summary(st.session_state.slots))
+
         problems = validate_slots(st.session_state.slots)
         if problems:
-            st.warning("; ".join(problems))
+            st.warning(" ; ".join(problems))
 
-        if st.button("Guardar piso en base de datos", type="primary"):
+        cta_col1, cta_col2 = st.columns([1, 2])
+        with cta_col1:
+            save_click = st.button("💾 Guardar piso", type="primary")
+        with cta_col2:
+            st.caption("Se almacenará en CSV (efímero) y se enviará a n8n / Supabase si están configurados.")
+
+        if save_click:
             missing = missing_required(st.session_state.slots)
             if missing:
                 st.error("Faltan campos obligatorios: " + ", ".join(missing))
@@ -399,23 +456,46 @@ def app():
                     "created_at": datetime.utcnow().isoformat()
                 }
                 save_listing(rec)
-                st.success("✅ Piso guardado y enviado a n8n (si está configurado).")
+                st.success("✅ Guardado correcto. Enviado a n8n/Supabase si procede.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ===== TAB: Datos & Hooks =====
+    with tab_datos:
+        st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
+        st.subheader("Datos recientes y acciones")
+        # Mostrar últimas filas del CSV (si existe)
+        try:
+            df = pd.read_csv(CSV_FILE)
+            st.dataframe(df.tail(5), use_container_width=True)
+        except Exception:
+            st.caption("No hay datos aún.")
 
         st.write("---")
-        st.subheader("Hooks M2 / M3 (simulados)")
-        if st.button("Enriquecer entorno (M2 simulado)"):
-            df = pd.read_csv(CSV_FILE)
-            df.iloc[-1, df.columns.get_loc("distancia_metro_m")] = 350
-            df.iloc[-1, df.columns.get_loc("score_conectividad")] = 0.78
-            df.to_csv(CSV_FILE, index=False)
-            st.info("Se han rellenado datos de entorno (simulados).")
+        st.write("**Hooks de demostración**")
+        hc1, hc2 = st.columns(2)
+        with hc1:
+            if st.button("🛰️ Enriquecer entorno (M2 simulado)"):
+                try:
+                    df = pd.read_csv(CSV_FILE)
+                    df.iloc[-1, df.columns.get_loc("distancia_metro_m")] = 350
+                    df.iloc[-1, df.columns.get_loc("score_conectividad")] = 0.78
+                    df.to_csv(CSV_FILE, index=False)
+                    st.toast("Datos de entorno simulados añadidos.")
+                except Exception:
+                    st.error("No hay registros para actualizar.")
+        with hc2:
+            if st.button("🖼️ Analizar fotos (M3 simulado)"):
+                try:
+                    df = pd.read_csv(CSV_FILE)
+                    df.iloc[-1, df.columns.get_loc("score_visual_global")] = 0.72
+                    df.iloc[-1, df.columns.get_loc("fotos_faltantes_sugeridas")] = "fachada, salón, dormitorio principal"
+                    df.to_csv(CSV_FILE, index=False)
+                    st.toast("Campos de análisis visual simulados añadidos.")
+                except Exception:
+                    st.error("No hay registros para actualizar.")
 
-        if st.button("Analizar fotos (M3 simulado)"):
-            df = pd.read_csv(CSV_FILE)
-            df.iloc[-1, df.columns.get_loc("score_visual_global")] = 0.72
-            df.iloc[-1, df.columns.get_loc("fotos_faltantes_sugeridas")] = "fachada, salón, dormitorio principal"
-            df.to_csv(CSV_FILE, index=False)
-            st.info("Se han rellenado los campos visuales (simulados).")
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
