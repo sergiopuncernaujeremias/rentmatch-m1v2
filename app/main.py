@@ -50,6 +50,7 @@ def ensure_csv_schema():
 
 
 def save_listing(record):
+    N8N_WEBHOOK = os.getenv("N8N_WEBHOOK_URL")  # configúralo en Streamlit Cloud
     df = pd.read_csv(CSV_FILE)
     df = pd.concat([df, pd.DataFrame([record])], ignore_index=True)
     df.to_csv(CSV_FILE, index=False)
