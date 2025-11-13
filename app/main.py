@@ -23,14 +23,16 @@ CSV_FILE = os.path.abspath(os.path.join(DATA_PATH, "pisos.csv"))
 
 # Webhooks n8n
 N8N_WEBHOOK = os.getenv("N8N_WEBHOOK_URL")  # alta del piso (ya existente)
-N8N_WEBHOOK_FOTOS = os.getenv("N8N_WEBHOOK_FOTOS")  # nuevo: flujo de fotos + scoring
-N8N_WEBHOOK_ENRIQUECIMIENTO = os.getenv("N8N_WEBHOOK_ENRIQUECIMIENTO")  # nuevo: flujo Google Maps / servicios
+N8N_WEBHOOK_FOTOS = os.getenv("N8N_WEBHOOK_FOTOS")  # flujo de fotos + scoring
+N8N_WEBHOOK_ENRIQUECIMIENTO = os.getenv("N8N_WEBHOOK_ENRIQUECIMIENTO")  # flujo Google Maps / servicios
 
+# Ahora ascensor, amueblado y mascotas son obligatorios
 REQUIRED_SLOTS = [
-    "precio", "barrio_ciudad", "m2", "habitaciones", "banos", "disponibilidad"
+    "precio", "barrio_ciudad", "m2", "habitaciones", "banos",
+    "disponibilidad", "ascensor", "amueblado", "mascotas"
 ]
 OPTIONAL_SLOTS = [
-    "planta", "ascensor", "amueblado", "mascotas", "estado"
+    "planta", "estado"
 ]
 ALL_SLOTS = REQUIRED_SLOTS + OPTIONAL_SLOTS
 
@@ -132,24 +134,44 @@ def validate_slots(slots: dict) -> list:
     return problems
 
 
+def is_missing_value(field: str, value):
+    """
+    Considera faltante:
+    - None
+    - cadena vacía
+    Pero NO considera faltante False o 0 (por ejemplo, 'no ascensor' es válido).
+    """
+    if value is None:
+        return True
+    if isinstance(value, str) and value.strip() == "":
+        return True
+    return False
+
+
 def missing_required(slots: dict) -> list:
-    return [k for k in REQUIRED_SLOTS if not slots.get(k)]
+    return [k for k in REQUIRED_SLOTS if is_missing_value(k, slots.get(k))]
 
 
 def make_questions(slots: dict) -> list:
     q = []
-    if not slots.get("precio"):
+    if is_missing_value("precio", slots.get("precio")):
         q.append("¿Cuál es el precio mensual en euros?")
-    if not slots.get("barrio_ciudad"):
+    if is_missing_value("barrio_ciudad", slots.get("barrio_ciudad")):
         q.append("¿En qué barrio y ciudad está el piso? (Ej.: 'Sant Gervasi, Barcelona')")
-    if not slots.get("m2"):
+    if is_missing_value("m2", slots.get("m2")):
         q.append("¿Cuántos metros cuadrados tiene?")
-    if not slots.get("habitaciones"):
+    if is_missing_value("habitaciones", slots.get("habitaciones")):
         q.append("¿Cuántas habitaciones tiene?")
-    if not slots.get("banos"):
+    if is_missing_value("banos", slots.get("banos")):
         q.append("¿Cuántos baños tiene?")
-    if not slots.get("disponibilidad"):
+    if is_missing_value("disponibilidad", slots.get("disponibilidad")):
         q.append("¿Desde qué fecha está disponible? (YYYY-MM-DD)")
+    if is_missing_value("ascensor", slots.get("ascensor")):
+        q.append("¿Tiene ascensor el edificio? (sí/no)")
+    if is_missing_value("amueblado", slots.get("amueblado")):
+        q.append("¿Está amueblado el piso? (sí/no)")
+    if is_missing_value("mascotas", slots.get("mascotas")):
+        q.append("¿Se aceptan mascotas? (sí/no)")
     return q
 
 
@@ -380,7 +402,7 @@ def app():
     # Sidebar con estado y acciones rápidas
     with st.sidebar:
         st.write("### Progreso")
-        done = sum(1 for k in REQUIRED_SLOTS if st.session_state.slots.get(k))
+        done = sum(1 for k in REQUIRED_SLOTS if not is_missing_value(k, st.session_state.slots.get(k)))
         st.progress(done / len(REQUIRED_SLOTS))
         st.write(f"Completados: **{done}/{len(REQUIRED_SLOTS)}**")
 
