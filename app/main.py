@@ -56,7 +56,6 @@ def save_listing(record):
     CSV solo para debug local.
     Retorna (success: bool, message: str)
     """
-    # Intentar enviar a n8n/Supabase
     webhook_status = "no_webhook"
     error_msg = None
     
@@ -79,10 +78,8 @@ def save_listing(record):
         df = pd.concat([df, pd.DataFrame([record])], ignore_index=True)
         df.to_csv(CSV_FILE, index=False)
     except Exception as e:
-        # CSV es solo debug, no es crítico si falla
         print(f"Warning: No se pudo guardar en CSV debug: {e}")
     
-    # Retornar resultado
     if webhook_status == "success":
         return True, "✅ Piso guardado correctamente en Supabase"
     elif webhook_status == "no_webhook":
@@ -95,11 +92,7 @@ def save_listing(record):
 # LLM: extracción de campos (con caché)
 # ------------------------------
 def extract_slots(description: str) -> dict:
-    """
-    Usa GPT para extraer datos estructurados.
-    Se cachea en session_state para evitar llamadas repetidas.
-    """
-    # Verificar si ya extrajimos esta descripción
+    """Usa GPT para extraer datos estructurados. Se cachea para evitar llamadas repetidas."""
     cache_key = f"extracted_{hash(description)}"
     if cache_key in st.session_state:
         return st.session_state[cache_key]
@@ -114,9 +107,7 @@ def extract_slots(description: str) -> dict:
         "estado en {'reformado','a reformar','bueno'} o null. "
         "Para barrio_ciudad devuelve 'Barrio, Ciudad' si es posible."
     )
-    user_prompt = (
-        "Texto del propietario: " + description + "\n\nDevuelve SOLO el JSON, sin texto adicional."
-    )
+    user_prompt = "Texto del propietario: " + description + "\n\nDevuelve SOLO el JSON, sin texto adicional."
 
     resp = client.chat.completions.create(
         model=MODEL,
@@ -136,7 +127,6 @@ def extract_slots(description: str) -> dict:
     for k in ALL_SLOTS:
         data.setdefault(k, None)
     
-    # Cachear resultado
     st.session_state[cache_key] = data
     return data
 
@@ -144,11 +134,8 @@ def extract_slots(description: str) -> dict:
 # ------------------------------
 # Validaciones mejoradas
 # ------------------------------
-def validate_slots(slots: dict) -> tuple[bool, list]:
-    """
-    Valida los slots y retorna (is_valid, errors).
-    Ahora distingue entre errores críticos y warnings.
-    """
+def validate_slots(slots: dict) -> tuple:
+    """Valida los slots y retorna (is_valid, errors)."""
     errors = []
     warnings = []
     
@@ -166,23 +153,18 @@ def validate_slots(slots: dict) -> tuple[bool, list]:
     # ERRORES CRÍTICOS (bloquean guardado)
     if precio is not None and precio <= 0:
         errors.append("❌ El precio debe ser mayor que 0")
-    
     if m2 is not None and m2 <= 0:
         errors.append("❌ Los m² deben ser mayor que 0")
-    
     if hab is not None and hab <= 0:
         errors.append("❌ Las habitaciones deben ser mayor que 0")
-    
     if ban is not None and ban <= 0:
         errors.append("❌ Los baños deben ser mayor que 0")
     
     # WARNINGS (permiten guardado pero alertan)
     if m2 and m2 < 25:
         warnings.append("⚠️ m² parece bajo (<25). ¿Es correcto?")
-    
     if hab and m2 and hab > m2 // 8:
         warnings.append("⚠️ Muchas habitaciones para los m². Verifica.")
-    
     if ban and ban > 5:
         warnings.append("⚠️ Número de baños inusual (>5). Verifica.")
     
@@ -242,8 +224,8 @@ SPANISH_MONTHS = {
     "noviembre": 11, "diciembre": 12
 }
 
-def parse_number(text: str) -> int | None:
-    """Extrae el primer número del texto (soporta 1.200, 1 200, 1200)."""
+def parse_number(text: str):
+    """Extrae el primer número del texto."""
     if not text:
         return None
     m = re.search(r"(\d{1,3}(?:[.\s]\d{3})+|\d+)(?:[.,]\d+)?", text)
@@ -257,7 +239,7 @@ def parse_number(text: str) -> int | None:
     except:
         return None
 
-def parse_bool(text: str) -> bool | None:
+def parse_bool(text: str):
     """Convierte respuestas tipo sí/no en True/False."""
     if not text:
         return None
@@ -273,7 +255,7 @@ def parse_bool(text: str) -> bool | None:
         return False
     return None
 
-def parse_date_es(text: str) -> str | None:
+def parse_date_es(text: str):
     """Convierte fechas en español a YYYY-MM-DD."""
     if not text:
         return None
@@ -282,12 +264,10 @@ def parse_date_es(text: str) -> str | None:
     if "inmediata" in t or "ya" in t or "hoy" in t:
         return datetime.today().date().isoformat()
 
-    # ISO directo
     m = re.match(r"^\s*(\d{4})-(\d{2})-(\d{2})\s*$", t)
     if m:
         return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
 
-    # DD/MM/YYYY o DD-MM-YYYY
     m = re.match(r"^\s*(\d{1,2})[/-](\d{1,2})[/-](\d{4})\s*$", t)
     if m:
         dd, mm, yyyy = int(m.group(1)), int(m.group(2)), int(m.group(3))
@@ -296,7 +276,6 @@ def parse_date_es(text: str) -> str | None:
         except:
             return None
 
-    # '15 de diciembre de 2025'
     m = re.match(r"^\s*(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})\s*$", t)
     if m:
         dd = int(m.group(1))
@@ -311,7 +290,7 @@ def parse_date_es(text: str) -> str | None:
 
     return None
 
-def normalize_field(field: str, text: str) -> object:
+def normalize_field(field: str, text: str):
     """Normaliza un campo según su tipo."""
     if text is None:
         return None
@@ -357,124 +336,229 @@ def init_state():
 APP_CSS = """
 <style>
 .rm-card {
-  border: 1px solid #e6e6e6; border-radius: 16px; padding: 16px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.04); background: #fff;
+  border: 1px solid #e6e6e6; border-radius: 12px; padding: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06); background: #fff;
+  height: 100%;
 }
-.rm-chip {
-  display:inline-block; padding:4px 10px; border-radius:999px;
-  border:1px solid #e6e6e6; margin-right:6px; font-size:12px;
-  background:#fafafa;
+.rm-chat-container {
+  height: 500px;
+  overflow-y: auto;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 8px;
+  margin-bottom: 16px;
 }
-.rm-muted { color:#666; font-size:12px; }
+.rm-message {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  max-width: 85%;
+}
+.rm-message-user {
+  background: #e3f2fd;
+  margin-left: auto;
+  text-align: right;
+}
+.rm-message-assistant {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+}
+.rm-field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #444;
+  margin-bottom: 4px;
+}
+.rm-required {
+  color: #d32f2f;
+  margin-left: 2px;
+}
+.stTextInput input {
+  background: #fafafa !important;
+}
 </style>
 """
 
-def render_chat_tab():
-    """Renderiza el tab de conversación."""
-    st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
-    st.subheader("Describe tu piso")
-    st.caption("Escribe libremente. Solo te preguntaremos lo imprescindible.")
+def app():
+    """Aplicación principal."""
+    st.set_page_config(
+        page_title="RentMatch AI — Alta del piso", 
+        page_icon="🏠", 
+        layout="wide"
+    )
+    st.markdown(APP_CSS, unsafe_allow_html=True)
 
-    # Histórico de chat
-    for msg in st.session_state.messages:
-        role = "🤖" if msg["role"] == "assistant" else "👤"
-        st.markdown(f"**{role}** {msg['content']}", unsafe_allow_html=True)
+    # Header
+    col_logo, col_title = st.columns([1, 5])
+    with col_logo:
+        st.write("# 🏠")
+    with col_title:
+        st.write("# RentMatch AI — M1")
+        st.caption("Alta conversacional del piso · Vista unificada")
 
-    prompt = st.chat_input("Escribe la descripción o responde a las preguntas…")
-    if prompt:
-        st.session_state.messages.append({"role": "user", "content": prompt})
+    st.divider()
+
+    # Estado inicial
+    init_state()
+    ensure_csv_schema()
+
+    # Layout principal: 2 columnas
+    col_chat, col_ficha = st.columns([1, 1], gap="large")
+
+    # ========== COLUMNA IZQUIERDA: CHAT ==========
+    with col_chat:
+        st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
+        st.subheader("💬 Conversación")
         
-        # Primera descripción: extraer con GPT (solo una vez)
-        if not st.session_state.extraction_done:
-            st.session_state.descripcion_original = prompt
-            with st.spinner("Analizando descripción…"):
-                extracted = extract_slots(prompt)
+        # Contenedor de mensajes con scroll
+        chat_container = st.container()
+        with chat_container:
+            st.markdown("<div class='rm-chat-container'>", unsafe_allow_html=True)
             
-            for k in ALL_SLOTS:
-                if extracted.get(k) is not None:
-                    st.session_state.slots[k] = extracted[k]
+            if len(st.session_state.messages) == 0:
+                st.markdown(
+                    "<div class='rm-message rm-message-assistant'>"
+                    "👋 ¡Hola! Describe tu piso en pocas palabras y yo me encargo del resto."
+                    "</div>",
+                    unsafe_allow_html=True
+                )
             
-            st.session_state.extraction_done = True
+            for msg in st.session_state.messages:
+                if msg["role"] == "assistant":
+                    st.markdown(
+                        f"<div class='rm-message rm-message-assistant'>🤖 {msg['content']}</div>",
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.markdown(
+                        f"<div class='rm-message rm-message-user'>👤 {msg['content']}</div>",
+                        unsafe_allow_html=True
+                    )
             
-            questions = make_questions(st.session_state.slots)
-            if questions:
-                chips = " ".join([f"<span class='rm-chip'>{q}</span>" for q in questions])
-                bot = "Gracias. Me faltan algunos datos:<br/>" + chips
-            else:
-                bot = "Perfecto, ya tengo lo necesario. Ve a **Ficha** para revisar y guardar."
-            st.session_state.messages.append({"role": "assistant", "content": bot})
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # Input de chat
+        prompt = st.chat_input("Escribe aquí tu mensaje...")
         
-        # Respuestas subsiguientes: solo normalizar campo faltante
-        else:
-            missing = missing_required(st.session_state.slots)
-            if missing:
-                field = missing[0]
-                value = normalize_field(field, prompt)
-                st.session_state.slots[field] = value
+        if prompt:
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            
+            # Primera descripción: extraer con GPT
+            if not st.session_state.extraction_done:
+                st.session_state.descripcion_original = prompt
+                with st.spinner("🔍 Analizando..."):
+                    extracted = extract_slots(prompt)
                 
+                for k in ALL_SLOTS:
+                    if extracted.get(k) is not None:
+                        st.session_state.slots[k] = extracted[k]
+                
+                st.session_state.extraction_done = True
+                
+                questions = make_questions(st.session_state.slots)
+                if questions:
+                    bot = f"Perfecto, he capturado varios datos. Me falta: {questions[0]}"
+                else:
+                    bot = "¡Genial! Ya tengo todo lo necesario. Revisa la ficha a la derecha y guarda cuando quieras."
+                st.session_state.messages.append({"role": "assistant", "content": bot})
+            
+            # Respuestas subsiguientes
+            else:
                 missing = missing_required(st.session_state.slots)
                 if missing:
-                    q = make_questions(st.session_state.slots)[0]
-                    st.session_state.messages.append({"role": "assistant", "content": q})
+                    field = missing[0]
+                    value = normalize_field(field, prompt)
+                    st.session_state.slots[field] = value
+                    
+                    missing = missing_required(st.session_state.slots)
+                    if missing:
+                        q = make_questions(st.session_state.slots)[0]
+                        st.session_state.messages.append({"role": "assistant", "content": q})
+                    else:
+                        st.session_state.messages.append({
+                            "role": "assistant", 
+                            "content": "✅ ¡Perfecto! Ya tenemos todo. Puedes guardar el piso."
+                        })
                 else:
-                    st.session_state.messages.append({"role": "assistant", "content": "¡Listo! Revisa la **Ficha** y pulsa **Guardar**."})
-            else:
-                st.session_state.messages.append({"role": "assistant", "content": "He anotado tu comentario. Ajusta en **Ficha** si lo necesitas."})
+                    st.session_state.messages.append({
+                        "role": "assistant", 
+                        "content": "Anotado. Si necesitas cambiar algo, edítalo en la ficha."
+                    })
+            
+            st.rerun()
         
-        st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-def render_ficha_tab():
-    """Renderiza el tab de ficha del piso."""
-    st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
-    st.subheader("Ficha del anuncio")
-
-    # Campos en dos columnas
-    c1, c2 = st.columns(2)
-    with c1:
-        for k in ["precio", "barrio_ciudad", "m2", "habitaciones", "banos", "disponibilidad"]:
+    # ========== COLUMNA DERECHA: FICHA ==========
+    with col_ficha:
+        st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
+        st.subheader("📋 Ficha del Piso")
+        
+        # Progreso
+        done = sum(1 for k in REQUIRED_SLOTS if st.session_state.slots.get(k))
+        st.progress(done / len(REQUIRED_SLOTS))
+        st.caption(f"Campos completados: {done}/{len(REQUIRED_SLOTS)}")
+        
+        st.write("---")
+        
+        # Campos obligatorios
+        st.markdown("#### Datos obligatorios")
+        
+        for k in REQUIRED_SLOTS:
+            label = k.replace("_", " ").title()
+            st.markdown(
+                f"<div class='rm-field-label'>{label} <span class='rm-required'>*</span></div>",
+                unsafe_allow_html=True
+            )
             v = st.session_state.slots.get(k)
-            new_val = st.text_input(k, value="" if v is None else str(v), key=f"input_{k}")
-            # Normalizar al cambiar
-            st.session_state.slots[k] = normalize_field(k, new_val) if new_val else None
-    
-    with c2:
-        for k in ["planta", "ascensor", "amueblado", "mascotas", "estado"]:
+            new_val = st.text_input(
+                k, 
+                value="" if v is None else str(v), 
+                key=f"input_{k}",
+                label_visibility="collapsed"
+            )
+            if new_val:
+                st.session_state.slots[k] = normalize_field(k, new_val)
+        
+        st.write("---")
+        
+        # Campos opcionales
+        st.markdown("#### Datos opcionales")
+        
+        for k in OPTIONAL_SLOTS:
+            label = k.replace("_", " ").title()
+            st.markdown(f"<div class='rm-field-label'>{label}</div>", unsafe_allow_html=True)
             v = st.session_state.slots.get(k)
-            new_val = st.text_input(k, value="" if v is None else str(v), key=f"input_{k}")
-            st.session_state.slots[k] = normalize_field(k, new_val) if new_val else None
-
-    st.write("---")
-    st.write("**Resumen:**")
-    st.info(make_summary(st.session_state.slots))
-
-    # Validaciones
-    is_valid, messages = validate_slots(st.session_state.slots)
-    
-    if messages:
-        for msg in messages:
-            if msg.startswith("❌"):
-                st.error(msg)
-            else:
-                st.warning(msg)
-
-    # Botón de guardar
-    cta_col1, cta_col2 = st.columns([1, 2])
-    with cta_col1:
-        save_click = st.button("💾 Guardar piso", type="primary", disabled=not is_valid)
-    with cta_col2:
-        if not is_valid:
-            st.caption("⚠️ Corrige los errores antes de guardar")
-        else:
-            st.caption("Se enviará a Supabase vía webhook n8n")
-
-    if save_click:
+            new_val = st.text_input(
+                k, 
+                value="" if v is None else str(v), 
+                key=f"input_{k}",
+                label_visibility="collapsed"
+            )
+            if new_val:
+                st.session_state.slots[k] = normalize_field(k, new_val)
+        
+        st.write("---")
+        
+        # Resumen
+        st.markdown("#### Resumen")
+        st.info(make_summary(st.session_state.slots))
+        
+        # Validaciones
+        is_valid, messages = validate_slots(st.session_state.slots)
+        
+        if messages:
+            for msg in messages:
+                if msg.startswith("❌"):
+                    st.error(msg)
+                else:
+                    st.warning(msg)
+        
+        # Botón guardar
         missing = missing_required(st.session_state.slots)
-        if missing:
-            st.error("Faltan campos obligatorios: " + ", ".join(missing))
-        else:
+        can_save = is_valid and len(missing) == 0
+        
+        if st.button("💾 Guardar Piso", type="primary", disabled=not can_save, use_container_width=True):
             rec = {
                 "id_piso": str(uuid.uuid4()),
                 "descripcion_original": st.session_state.descripcion_original,
@@ -487,151 +571,28 @@ def render_ficha_tab():
                 "created_at": datetime.utcnow().isoformat()
             }
             
-            with st.spinner("Guardando en Supabase..."):
+            with st.spinner("📤 Guardando en Supabase..."):
                 success, message = save_listing(rec)
             
             if success:
                 st.success(message)
-                # Resetear estado para nuevo piso
-                if st.button("➕ Crear otro piso"):
+                st.balloons()
+                
+                if st.button("➕ Crear otro piso", use_container_width=True):
                     for key in ["messages", "slots", "descripcion_original", "extraction_done"]:
                         if key in st.session_state:
                             del st.session_state[key]
                     st.rerun()
             else:
                 st.error(message)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-def render_datos_tab():
-    """Renderiza el tab de datos y hooks."""
-    st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
-    st.subheader("Datos recientes (debug local)")
-    
-    try:
-        df = pd.read_csv(CSV_FILE)
-        if len(df) > 0:
-            st.dataframe(df.tail(5), use_container_width=True)
-            
-            # Mostrar estado del webhook
-            if "webhook_status" in df.columns:
-                last_status = df.iloc[-1]["webhook_status"]
-                if last_status == "success":
-                    st.success("✅ Último envío a n8n: exitoso")
-                elif last_status == "error":
-                    st.error("❌ Último envío a n8n: falló")
-                elif last_status == "timeout":
-                    st.warning("⏱️ Último envío a n8n: timeout")
-                else:
-                    st.info("ℹ️ No se ha configurado webhook")
-        else:
-            st.caption("No hay datos aún.")
-    except Exception as e:
-        st.caption(f"No hay datos de debug: {e}")
-
-    st.write("---")
-    st.write("**Hooks de demostración (M2/M3)**")
-    st.caption("Estos botones simulan el enriquecimiento de datos de módulos futuros")
-    
-    hc1, hc2 = st.columns(2)
-    with hc1:
-        if st.button("🛰️ Enriquecer entorno (M2 simulado)"):
-            try:
-                df = pd.read_csv(CSV_FILE)
-                if len(df) > 0:
-                    df.loc[df.index[-1], "distancia_metro_m"] = 350
-                    df.loc[df.index[-1], "score_conectividad"] = 0.78
-                    df.to_csv(CSV_FILE, index=False)
-                    st.toast("✅ Datos de entorno simulados añadidos")
-                    st.rerun()
-                else:
-                    st.error("No hay registros para actualizar")
-            except Exception as e:
-                st.error(f"Error: {e}")
-    
-    with hc2:
-        if st.button("🖼️ Analizar fotos (M3 simulado)"):
-            try:
-                df = pd.read_csv(CSV_FILE)
-                if len(df) > 0:
-                    df.loc[df.index[-1], "score_visual_global"] = 0.72
-                    df.loc[df.index[-1], "fotos_faltantes_sugeridas"] = "fachada, salón, dormitorio principal"
-                    df.to_csv(CSV_FILE, index=False)
-                    st.toast("✅ Campos de análisis visual simulados añadidos")
-                    st.rerun()
-                else:
-                    st.error("No hay registros para actualizar")
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-def app():
-    """Aplicación principal."""
-    st.set_page_config(
-        page_title="RentMatch AI — Alta del piso", 
-        page_icon="🏠", 
-        layout="wide"
-    )
-    st.markdown(APP_CSS, unsafe_allow_html=True)
-
-    # Header
-    colh1, colh2 = st.columns([1, 4])
-    with colh1:
-        st.write("### 🏠")
-    with colh2:
-        st.write("# RentMatch AI — M1")
-        st.caption("Alta conversacional del piso · Demo Cloud")
-
-    # Sidebar
-    with st.sidebar:
-        st.write("### Progreso")
-        done = sum(1 for k in REQUIRED_SLOTS if st.session_state.get("slots", {}).get(k))
-        st.progress(done/len(REQUIRED_SLOTS))
-        st.write(f"Completados: **{done}/{len(REQUIRED_SLOTS)}**")
-
-        st.write("### Pasos")
-        st.markdown(
-            "- 1️⃣ Describe el piso\n"
-            "- 2️⃣ Responde a lo que falte\n"
-            "- 3️⃣ Revisa y **Guarda**"
-        )
         
-        st.divider()
-        st.write("### Estado del sistema")
-        webhook_configured = bool(N8N_WEBHOOK)
-        st.write(f"🔗 Webhook n8n: {'✅ Configurado' if webhook_configured else '❌ No configurado'}")
-        st.write(f"📊 CSV debug: {'✅ Activo' if os.path.exists(CSV_FILE) else '⬜ No creado'}")
+        if not can_save:
+            if missing:
+                st.caption(f"⚠️ Faltan campos obligatorios: {', '.join(missing)}")
+            elif not is_valid:
+                st.caption("⚠️ Corrige los errores antes de guardar")
         
-        st.divider()
-        st.write("### Info")
-        st.markdown(
-            "<span class='rm-muted'>Los datos se guardan en Supabase vía n8n. "
-            "El CSV es solo para debug local.</span>", 
-            unsafe_allow_html=True
-        )
-
-    # Estado inicial
-    init_state()
-    ensure_csv_schema()
-
-    # Tabs principales
-    tab_chat, tab_ficha, tab_datos = st.tabs([
-        "💬 Conversación", 
-        "🧾 Ficha", 
-        "📊 Datos & Hooks"
-    ])
-
-    with tab_chat:
-        render_chat_tab()
-
-    with tab_ficha:
-        render_ficha_tab()
-
-    with tab_datos:
-        render_datos_tab()
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
