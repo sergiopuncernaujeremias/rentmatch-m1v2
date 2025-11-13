@@ -384,7 +384,8 @@ def app():
     st.set_page_config(
         page_title="RentMatch AI — Alta del piso", 
         page_icon="🏠", 
-        layout="wide"
+        layout="wide",
+        initial_sidebar_state="collapsed"
     )
     st.markdown(APP_CSS, unsafe_allow_html=True)
 
@@ -392,10 +393,8 @@ def app():
     init_state()
     ensure_csv_schema()
 
-    # Header compacto
-    st.markdown("## 🏠 RentMatch AI — M1")
-    st.caption("Alta conversacional del piso")
-    st.markdown("<br>", unsafe_allow_html=True)
+    # Header compacto en una sola línea
+    st.markdown("### 🏠 RentMatch AI — Alta conversacional del piso")
 
     # Layout principal: 2 columnas
     col_chat, col_ficha = st.columns([1, 1], gap="large")
@@ -510,18 +509,23 @@ def app():
                 f"<div class='rm-field-label'>{label} <span class='rm-required'>*</span></div>",
                 unsafe_allow_html=True
             )
+            # Mostrar el valor actual del slot directamente
             v = st.session_state.slots.get(k)
-            # Usar key único sin depender del input para que se actualice reactivamente
-            current_value = "" if v is None else str(v)
+            display_value = "" if v is None else str(v)
+            
             new_val = st.text_input(
                 k, 
-                value=current_value, 
+                value=display_value,
                 key=f"field_{k}",
                 label_visibility="collapsed"
             )
-            # Solo actualizar si el usuario cambió manualmente
-            if new_val != current_value:
-                st.session_state.slots[k] = normalize_field(k, new_val) if new_val else None
+            
+            # Actualizar solo si cambió manualmente (diferente al valor del slot)
+            if new_val != display_value:
+                if new_val.strip():
+                    st.session_state.slots[k] = normalize_field(k, new_val)
+                else:
+                    st.session_state.slots[k] = None
         
         st.write("---")
         
@@ -531,17 +535,24 @@ def app():
         for k in OPTIONAL_SLOTS:
             label = k.replace("_", " ").title()
             st.markdown(f"<div class='rm-field-label'>{label}</div>", unsafe_allow_html=True)
+            
+            # Mostrar el valor actual del slot directamente
             v = st.session_state.slots.get(k)
-            current_value = "" if v is None else str(v)
+            display_value = "" if v is None else str(v)
+            
             new_val = st.text_input(
                 k, 
-                value=current_value, 
+                value=display_value,
                 key=f"field_{k}",
                 label_visibility="collapsed"
             )
-            # Solo actualizar si el usuario cambió manualmente
-            if new_val != current_value:
-                st.session_state.slots[k] = normalize_field(k, new_val) if new_val else None
+            
+            # Actualizar solo si cambió manualmente
+            if new_val != display_value:
+                if new_val.strip():
+                    st.session_state.slots[k] = normalize_field(k, new_val)
+                else:
+                    st.session_state.slots[k] = None
         
         st.write("---")
         
