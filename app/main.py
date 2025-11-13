@@ -388,19 +388,14 @@ def app():
     )
     st.markdown(APP_CSS, unsafe_allow_html=True)
 
-    # Header
-    col_logo, col_title = st.columns([1, 5])
-    with col_logo:
-        st.write("# 🏠")
-    with col_title:
-        st.write("# RentMatch AI — M1")
-        st.caption("Alta conversacional del piso · Vista unificada")
-
-    st.divider()
-
     # Estado inicial
     init_state()
     ensure_csv_schema()
+
+    # Header compacto
+    st.markdown("## 🏠 RentMatch AI — M1")
+    st.caption("Alta conversacional del piso")
+    st.markdown("<br>", unsafe_allow_html=True)
 
     # Layout principal: 2 columnas
     col_chat, col_ficha = st.columns([1, 1], gap="large")
@@ -449,6 +444,7 @@ def app():
                 with st.spinner("🔍 Analizando..."):
                     extracted = extract_slots(prompt)
                 
+                # Actualizar slots automáticamente
                 for k in ALL_SLOTS:
                     if extracted.get(k) is not None:
                         st.session_state.slots[k] = extracted[k]
@@ -461,6 +457,9 @@ def app():
                 else:
                     bot = "¡Genial! Ya tengo todo lo necesario. Revisa la ficha a la derecha y guarda cuando quieras."
                 st.session_state.messages.append({"role": "assistant", "content": bot})
+                
+                # Forzar recarga para actualizar campos
+                st.rerun()
             
             # Respuestas subsiguientes
             else:
@@ -484,8 +483,9 @@ def app():
                         "role": "assistant", 
                         "content": "Anotado. Si necesitas cambiar algo, edítalo en la ficha."
                     })
-            
-            st.rerun()
+                
+                # Forzar recarga para actualizar campos
+                st.rerun()
         
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -511,14 +511,17 @@ def app():
                 unsafe_allow_html=True
             )
             v = st.session_state.slots.get(k)
+            # Usar key único sin depender del input para que se actualice reactivamente
+            current_value = "" if v is None else str(v)
             new_val = st.text_input(
                 k, 
-                value="" if v is None else str(v), 
-                key=f"input_{k}",
+                value=current_value, 
+                key=f"field_{k}",
                 label_visibility="collapsed"
             )
-            if new_val:
-                st.session_state.slots[k] = normalize_field(k, new_val)
+            # Solo actualizar si el usuario cambió manualmente
+            if new_val != current_value:
+                st.session_state.slots[k] = normalize_field(k, new_val) if new_val else None
         
         st.write("---")
         
@@ -529,14 +532,16 @@ def app():
             label = k.replace("_", " ").title()
             st.markdown(f"<div class='rm-field-label'>{label}</div>", unsafe_allow_html=True)
             v = st.session_state.slots.get(k)
+            current_value = "" if v is None else str(v)
             new_val = st.text_input(
                 k, 
-                value="" if v is None else str(v), 
-                key=f"input_{k}",
+                value=current_value, 
+                key=f"field_{k}",
                 label_visibility="collapsed"
             )
-            if new_val:
-                st.session_state.slots[k] = normalize_field(k, new_val)
+            # Solo actualizar si el usuario cambió manualmente
+            if new_val != current_value:
+                st.session_state.slots[k] = normalize_field(k, new_val) if new_val else None
         
         st.write("---")
         
@@ -597,4 +602,3 @@ def app():
 
 if __name__ == "__main__":
     app()
-    
