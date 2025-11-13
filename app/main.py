@@ -703,39 +703,71 @@ def app():
                         # Generar ID del piso
                         id_piso = str(uuid.uuid4())
 
-                        # Construir registro base
+                        # Campos base del piso (desde slots)
+                        precio = st.session_state.slots.get("precio")
+                        barrio_ciudad = st.session_state.slots.get("barrio_ciudad")
+                        m2 = st.session_state.slots.get("m2")
+                        habitaciones = st.session_state.slots.get("habitaciones")
+                        banos = st.session_state.slots.get("banos")
+                        planta = st.session_state.slots.get("planta")
+                        ascensor = st.session_state.slots.get("ascensor")
+                        amueblado = st.session_state.slots.get("amueblado")
+                        mascotas = st.session_state.slots.get("mascotas")
+                        disponibilidad = st.session_state.slots.get("disponibilidad")
+                        estado = st.session_state.slots.get("estado")
+
+                        # Campo mascotas obligatorio en BD: si falta, guardarlo como cadena vacía
+                        if mascotas is None:
+                            mascotas = ""
+
+                        # Construir registro COMPLETO (piso + preferencias)
                         rec = {
                             "id_piso": id_piso,
                             "descripcion_original": st.session_state.descripcion_original,
                             "descripcion_ia": make_summary(st.session_state.slots),
-                            **{k: st.session_state.slots.get(k) for k in ALL_SLOTS},
+
+                            # Datos del piso
+                            "precio": precio,
+                            "barrio_ciudad": barrio_ciudad,
+                            "m2": m2,
+                            "habitaciones": habitaciones,
+                            "banos": banos,
+                            "planta": planta,
+                            "ascensor": ascensor,
+                            "amueblado": amueblado,
+                            "mascotas": mascotas,
+                            "disponibilidad": disponibilidad,
+                            "estado": estado,
+
+                            # Campos M2/M3 (se rellenan luego vía otros flujos)
                             "distancia_metro_m": None,
                             "score_conectividad": None,
                             "score_visual_global": None,
                             "fotos_faltantes_sugeridas": None,
+
+                            # Preferencias del arrendador sobre inquilinos
+                            "max_ocupantes": int(max_ocupantes),
+                            "admite_mascotas_inquilino": True if admite_mascotas_inquilino_str == "Sí" else False,
+                            "edad_minima": int(edad_minima) if edad_minima > 0 else None,
+                            "tipos_inquilino_preferidos": ",".join(tipos_inquilino_preferidos_list) if tipos_inquilino_preferidos_list else None,
+                            "ingreso_minimo": float(ingreso_minimo) if ingreso_minimo > 0 else None,
+                            "duracion_minima": int(duracion_minima),
+                            "duracion_maxima": int(duracion_maxima) if duracion_maxima > 0 else None,
+                            "contrato_estable": True if contrato_estable_str == "Sí" else False,
+                            "autonomo_aceptado": None if autonomo_aceptado_str == "Sin preferencia" else (autonomo_aceptado_str == "Sí"),
+                            "freelance_aceptado": None if freelance_aceptado_str == "Sin preferencia" else (freelance_aceptado_str == "Sí"),
+                            "fumadores_permitidos": True if fumadores_permitidos_str == "Sí" else False,
+                            "perfil_tranquilo": None if perfil_tranquilo_str == "Sin preferencia" else (perfil_tranquilo_str == "Sí"),
+                            "normas_especiales": normas_especiales or None,
+                            "prioridades_seleccion": prioridades_seleccion,
+                            "observaciones_perfil_inquilino": observaciones_perfil_inquilino or None,
+
                             "created_at": datetime.utcnow().isoformat(),
                         }
 
-                        # Campo mascotas obligatorio en BD: si falta, guardarlo como cadena vacía
-                        if rec.get("mascotas") is None:
-                            rec["mascotas"] = ""
-
-                        # Añadir preferencias del arrendador al registro
-                        rec["max_ocupantes"] = int(max_ocupantes)
-                        rec["admite_mascotas_inquilino"] = True if admite_mascotas_inquilino_str == "Sí" else False
-                        rec["edad_minima"] = int(edad_minima) if edad_minima > 0 else None
-                        rec["tipos_inquilino_preferidos"] = ",".join(tipos_inquilino_preferidos_list) if tipos_inquilino_preferidos_list else None
-                        rec["ingreso_minimo"] = float(ingreso_minimo) if ingreso_minimo > 0 else None
-                        rec["duracion_minima"] = int(duracion_minima)
-                        rec["duracion_maxima"] = int(duracion_maxima) if duracion_maxima > 0 else None
-                        rec["contrato_estable"] = True if contrato_estable_str == "Sí" else False
-                        rec["autonomo_aceptado"] = None if autonomo_aceptado_str == "Sin preferencia" else (autonomo_aceptado_str == "Sí")
-                        rec["freelance_aceptado"] = None if freelance_aceptado_str == "Sin preferencia" else (freelance_aceptado_str == "Sí")
-                        rec["fumadores_permitidos"] = True if fumadores_permitidos_str == "Sí" else False
-                        rec["perfil_tranquilo"] = None if perfil_tranquilo_str == "Sin preferencia" else (perfil_tranquilo_str == "Sí")
-                        rec["normas_especiales"] = normas_especiales or None
-                        rec["prioridades_seleccion"] = prioridades_seleccion
-                        rec["observaciones_perfil_inquilino"] = observaciones_perfil_inquilino or None
+                        # DEBUG opcional: ver en pantalla qué se está enviando
+                        st.write("Payload enviado a n8n / Supabase:")
+                        st.json(rec)
 
                         save_listing(rec)
 
@@ -744,6 +776,7 @@ def app():
                         st.session_state.last_saved_record = rec
 
                         st.success("✅ Guardado correcto. Enviado a n8n/Supabase si procede.")
+
 
             st.write("---")
             st.subheader("Acciones sobre este piso")
