@@ -36,6 +36,25 @@ OPTIONAL_SLOTS = [
 ]
 ALL_SLOTS = REQUIRED_SLOTS + OPTIONAL_SLOTS
 
+# Campos nuevos de preferencias del arrendador sobre el inquilino
+PREF_FIELDS = [
+    "max_ocupantes",
+    "admite_mascotas_inquilino",
+    "edad_minima",
+    "tipos_inquilino_preferidos",
+    "ingreso_minimo",
+    "duracion_minima",
+    "duracion_maxima",
+    "contrato_estable",
+    "autonomo_aceptado",
+    "freelance_aceptado",
+    "fumadores_permitidos",
+    "perfil_tranquilo",
+    "normas_especiales",
+    "prioridades_seleccion",
+    "observaciones_perfil_inquilino",
+]
+
 
 # ------------------------------
 # Utilidades de datos
@@ -50,9 +69,28 @@ def ensure_csv_schema():
             # Campos reservados para M2/M3
             "distancia_metro_m", "score_conectividad",
             "score_visual_global", "fotos_faltantes_sugeridas",
-            "created_at"
+            # Preferencias arrendador
+            *PREF_FIELDS,
+            "created_at",
         ]
         pd.DataFrame(columns=cols).to_csv(CSV_FILE, index=False)
+    else:
+        # Si ya existe, asegurar que todas las columnas nuevas están presentes
+        df = pd.read_csv(CSV_FILE)
+        cols_existentes = set(df.columns)
+        cols_nuevas = [
+            "id_piso", "descripcion_original", "descripcion_ia",
+            "precio", "barrio_ciudad", "m2", "habitaciones", "banos",
+            "planta", "ascensor", "amueblado", "mascotas", "disponibilidad",
+            "distancia_metro_m", "score_conectividad",
+            "score_visual_global", "fotos_faltantes_sugeridas",
+            *PREF_FIELDS,
+            "created_at",
+        ]
+        for c in cols_nuevas:
+            if c not in cols_existentes:
+                df[c] = None
+        df.to_csv(CSV_FILE, index=False)
 
 
 def save_listing(record):
@@ -410,7 +448,8 @@ def app():
         st.markdown(
             "- 1) Describe el piso\n"
             "- 2) Responde a lo que falte\n"
-            "- 3) Revisa la ficha y **Guarda**"
+            "- 3) Completa preferencias sobre inquilinos\n"
+            "- 4) Revisa la ficha y **Guarda**"
         )
         st.write("### Enlaces")
         st.markdown(
@@ -460,7 +499,7 @@ def app():
                         bullets = "\n".join([f"- {q}" for q in questions])
                         bot = "Gracias. Me faltan algunos datos:\n\n" + bullets
                     else:
-                        bot = "Perfecto, ya tengo lo necesario. Revisa la ficha a la derecha y guarda el piso."
+                        bot = "Perfecto, ya tengo lo necesario. Revisa la ficha a la derecha, completa tus preferencias como arrendador y guarda el piso."
 
                     st.session_state.messages.append({"role": "assistant", "content": bot})
 
@@ -479,13 +518,17 @@ def app():
                             st.session_state.messages.append({"role": "assistant", "content": q})
                         else:
                             st.session_state.messages.append(
-                                {"role": "assistant",
-                                 "content": "¡Listo! Revisa la ficha a la derecha y pulsa **Guardar piso**."}
+                                {
+                                    "role": "assistant",
+                                    "content": "¡Listo! Revisa la ficha a la derecha, completa tus preferencias como arrendador y pulsa **Guardar piso**.",
+                                }
                             )
                     else:
                         st.session_state.messages.append(
-                            {"role": "assistant",
-                             "content": "He anotado tu comentario. Ajusta en la ficha si lo necesitas."}
+                            {
+                                "role": "assistant",
+                                "content": "He anotado tu comentario. Ajusta en la ficha si lo necesitas.",
+                            }
                         )
 
             st.markdown("</div>", unsafe_allow_html=True)
@@ -517,6 +560,114 @@ def app():
             )
 
             st.write("---")
+            st.subheader("Preferencias sobre el inquilino (obligatorio)")
+
+            # Widgets de preferencias (se apoyan en Streamlit para conservar estado)
+            max_ocupantes = st.number_input(
+                "Número máximo de ocupantes",
+                min_value=1,
+                max_value=20,
+                step=1,
+                key="max_ocupantes"
+            )
+
+            admite_mascotas_inquilino_str = st.selectbox(
+                "¿Aceptarías inquilinos con mascotas?",
+                ["Sí", "No"],
+                key="admite_mascotas_inquilino_str"
+            )
+
+            edad_minima = st.number_input(
+                "Edad mínima de los inquilinos (opcional)",
+                min_value=0,
+                max_value=120,
+                step=1,
+                key="edad_minima"
+            )
+
+            tipos_inquilino_preferidos_list = st.multiselect(
+                "Tipo de inquilino preferido",
+                ["Individuo", "Pareja", "Familia", "Estudiantes", "Compartir piso"],
+                key="tipos_inquilino_preferidos_list"
+            )
+
+            ingreso_minimo = st.number_input(
+                "Ingreso mínimo mensual total requerido (opcional, €)",
+                min_value=0,
+                step=100,
+                key="ingreso_minimo"
+            )
+
+            duracion_minima = st.number_input(
+                "Duración mínima deseada del alquiler (meses)",
+                min_value=1,
+                max_value=120,
+                step=1,
+                key="duracion_minima"
+            )
+
+            duracion_maxima = st.number_input(
+                "Duración máxima aceptada (opcional, meses)",
+                min_value=0,
+                max_value=240,
+                step=1,
+                key="duracion_maxima"
+            )
+
+            contrato_estable_str = st.selectbox(
+                "¿Quieres contrato laboral estable (indefinido/fijo) como preferencia?",
+                ["Sí", "No"],
+                key="contrato_estable_str"
+            )
+
+            autonomo_aceptado_str = st.selectbox(
+                "¿Aceptas autónomos?",
+                ["Sin preferencia", "Sí", "No"],
+                key="autonomo_aceptado_str"
+            )
+
+            freelance_aceptado_str = st.selectbox(
+                "¿Aceptas freelance / ingresos variables?",
+                ["Sin preferencia", "Sí", "No"],
+                key="freelance_aceptado_str"
+            )
+
+            fumadores_permitidos_str = st.selectbox(
+                "¿Permites fumadores dentro de la vivienda?",
+                ["Sí", "No"],
+                key="fumadores_permitidos_str"
+            )
+
+            perfil_tranquilo_str = st.selectbox(
+                "¿Prefieres explícitamente un perfil tranquilo?",
+                ["Sin preferencia", "Sí", "No"],
+                key="perfil_tranquilo_str"
+            )
+
+            normas_especiales = st.text_area(
+                "Normas especiales de la vivienda / comunidad (opcional)",
+                key="normas_especiales"
+            )
+
+            prioridades_seleccion = st.selectbox(
+                "¿Qué pesa más para ti al elegir un inquilino?",
+                [
+                    "Solvencia",
+                    "Estabilidad laboral",
+                    "Duración del contrato",
+                    "Ausencia de mascotas",
+                    "Perfil familiar",
+                    "Rapidez de disponibilidad",
+                ],
+                key="prioridades_seleccion"
+            )
+
+            observaciones_perfil_inquilino = st.text_area(
+                "Observaciones sobre el tipo de inquilino deseado (opcional)",
+                key="observaciones_perfil_inquilino"
+            )
+
+            st.write("---")
             st.write("**Resumen generado por la IA:**")
             st.info(make_summary(st.session_state.slots))
 
@@ -533,36 +684,66 @@ def app():
                 )
 
             if save_click:
-                missing = missing_required(st.session_state.slots)
-                if missing:
-                    st.error("Faltan campos obligatorios: " + ", ".join(missing))
+                # Validación de campos obligatorios de preferencias
+                pref_errors = []
+                if not tipos_inquilino_preferidos_list:
+                    pref_errors.append("Debes seleccionar al menos un tipo de inquilino preferido.")
+                if max_ocupantes < 1:
+                    pref_errors.append("Indica el número máximo de ocupantes.")
+                if duracion_minima < 1:
+                    pref_errors.append("Indica la duración mínima deseada del alquiler (meses).")
+
+                if pref_errors:
+                    st.error("Faltan datos en preferencias del inquilino: " + " | ".join(pref_errors))
                 else:
-                    # Generar ID del piso
-                    id_piso = str(uuid.uuid4())
+                    missing = missing_required(st.session_state.slots)
+                    if missing:
+                        st.error("Faltan campos obligatorios del piso: " + ", ".join(missing))
+                    else:
+                        # Generar ID del piso
+                        id_piso = str(uuid.uuid4())
 
-                    rec = {
-                        "id_piso": id_piso,
-                        "descripcion_original": st.session_state.descripcion_original,
-                        "descripcion_ia": make_summary(st.session_state.slots),
-                        **{k: st.session_state.slots.get(k) for k in ALL_SLOTS},
-                        "distancia_metro_m": None,
-                        "score_conectividad": None,
-                        "score_visual_global": None,
-                        "fotos_faltantes_sugeridas": None,
-                        "created_at": datetime.utcnow().isoformat()
-                    }
+                        # Construir registro base
+                        rec = {
+                            "id_piso": id_piso,
+                            "descripcion_original": st.session_state.descripcion_original,
+                            "descripcion_ia": make_summary(st.session_state.slots),
+                            **{k: st.session_state.slots.get(k) for k in ALL_SLOTS},
+                            "distancia_metro_m": None,
+                            "score_conectividad": None,
+                            "score_visual_global": None,
+                            "fotos_faltantes_sugeridas": None,
+                            "created_at": datetime.utcnow().isoformat(),
+                        }
 
-                    # Campo mascotas obligatorio en BD: si falta, guardarlo como cadena vacía
-                    if rec.get("mascotas") is None:
-                        rec["mascotas"] = ""
+                        # Campo mascotas obligatorio en BD: si falta, guardarlo como cadena vacía
+                        if rec.get("mascotas") is None:
+                            rec["mascotas"] = ""
 
-                    save_listing(rec)
+                        # Añadir preferencias del arrendador al registro
+                        rec["max_ocupantes"] = int(max_ocupantes)
+                        rec["admite_mascotas_inquilino"] = True if admite_mascotas_inquilino_str == "Sí" else False
+                        rec["edad_minima"] = int(edad_minima) if edad_minima > 0 else None
+                        rec["tipos_inquilino_preferidos"] = ",".join(tipos_inquilino_preferidos_list) if tipos_inquilino_preferidos_list else None
+                        rec["ingreso_minimo"] = float(ingreso_minimo) if ingreso_minimo > 0 else None
+                        rec["duracion_minima"] = int(duracion_minima)
+                        rec["duracion_maxima"] = int(duracion_maxima) if duracion_maxima > 0 else None
+                        rec["contrato_estable"] = True if contrato_estable_str == "Sí" else False
+                        rec["autonomo_aceptado"] = None if autonomo_aceptado_str == "Sin preferencia" else (autonomo_aceptado_str == "Sí")
+                        rec["freelance_aceptado"] = None if freelance_aceptado_str == "Sin preferencia" else (freelance_aceptado_str == "Sí")
+                        rec["fumadores_permitidos"] = True if fumadores_permitidos_str == "Sí" else False
+                        rec["perfil_tranquilo"] = None if perfil_tranquilo_str == "Sin preferencia" else (perfil_tranquilo_str == "Sí")
+                        rec["normas_especiales"] = normas_especiales or None
+                        rec["prioridades_seleccion"] = prioridades_seleccion
+                        rec["observaciones_perfil_inquilino"] = observaciones_perfil_inquilino or None
 
-                    # Guardar en estado para botones posteriores
-                    st.session_state.last_saved_property_id = id_piso
-                    st.session_state.last_saved_record = rec
+                        save_listing(rec)
 
-                    st.success("✅ Guardado correcto. Enviado a n8n/Supabase si procede.")
+                        # Guardar en estado para botones posteriores
+                        st.session_state.last_saved_property_id = id_piso
+                        st.session_state.last_saved_record = rec
+
+                        st.success("✅ Guardado correcto. Enviado a n8n/Supabase si procede.")
 
             st.write("---")
             st.subheader("Acciones sobre este piso")
