@@ -532,8 +532,8 @@ def app():
 
             # Histórico de chat
             for msg in st.session_state.messages:
-            role_icon = "🤖" if msg["role"] == "assistant" else "👤"
-            st.markdown(f"**{role_icon}** {msg['content']}", unsafe_allow_html=True)
+                role_icon = "🤖" if msg["role"] == "assistant" else "👤"
+                st.markdown(f"**{role_icon}** {msg['content']}", unsafe_allow_html=True)
 
             # Primer paso: descripción inicial en un área grande
             if not st.session_state.descripcion_original:
