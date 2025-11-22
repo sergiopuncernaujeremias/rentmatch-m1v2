@@ -568,8 +568,8 @@ def app():
                             )
                         st.session_state.messages.append(
                             {"role": "assistant", "content": bot}
-                        )
-                        st.experimental_rerun()
+                                                        )
+                            st.rerun()
             else:
                 # Mensajes posteriores: ir rellenando campos que falten, pregunta a pregunta
                 prompt = st.chat_input("Responde a las preguntas o añade comentarios…")
