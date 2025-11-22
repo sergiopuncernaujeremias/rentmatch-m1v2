@@ -190,27 +190,31 @@ def missing_required(slots: dict) -> list:
     return [k for k in REQUIRED_SLOTS if is_missing_value(k, slots.get(k))]
 
 
-def make_questions(slots: dict) -> list:
-    q = []
-    if is_missing_value("precio", slots.get("precio")):
-        q.append("¿Cuál es el precio mensual en euros?")
-    if is_missing_value("barrio_ciudad", slots.get("barrio_ciudad")):
-        q.append("¿En qué barrio y ciudad está el piso? (Ej.: 'Sant Gervasi, Barcelona')")
-    if is_missing_value("m2", slots.get("m2")):
-        q.append("¿Cuántos metros cuadrados tiene?")
-    if is_missing_value("habitaciones", slots.get("habitaciones")):
-        q.append("¿Cuántas habitaciones tiene?")
-    if is_missing_value("banos", slots.get("banos")):
-        q.append("¿Cuántos baños tiene?")
-    if is_missing_value("disponibilidad", slots.get("disponibilidad")):
-        q.append("¿Desde qué fecha está disponible? (YYYY-MM-DD)")
-    if is_missing_value("ascensor", slots.get("ascensor")):
-        q.append("¿Tiene ascensor el edificio? (sí/no)")
-    if is_missing_value("amueblado", slots.get("amueblado")):
-        q.append("¿Está amueblado el piso? (sí/no)")
-    if is_missing_value("mascotas", slots.get("mascotas")):
-        q.append("¿Se aceptan mascotas? (sí/no)")
-    return q
+# Mapeo campo -> pregunta en lenguaje natural
+FIELD_QUESTIONS = {
+    "precio": "¿Cuál es el precio mensual en euros?",
+    "barrio_ciudad": "¿En qué barrio y ciudad está el piso? (Ej.: 'Sant Gervasi, Barcelona')",
+    "m2": "¿Cuántos metros cuadrados tiene?",
+    "habitaciones": "¿Cuántas habitaciones tiene?",
+    "banos": "¿Cuántos baños tiene?",
+    "disponibilidad": "¿Desde qué fecha está disponible? (YYYY-MM-DD)",
+    "ascensor": "¿Tiene ascensor el edificio? (sí/no)",
+    "amueblado": "¿Está amueblado el piso? (sí/no)",
+    "mascotas": "¿Se aceptan mascotas? (sí/no)",
+}
+
+def question_for_field(field: str) -> str:
+    """Devuelve la pregunta adecuada para un campo concreto."""
+    return FIELD_QUESTIONS.get(field, f"¿Puedes facilitar el dato para el campo '{field}'?")
+
+def make_questions(slots: dict) -> list[str]:
+    """Devuelve la lista de preguntas pendientes según los campos requeridos que falten."""
+    qs = []
+    for f in REQUIRED_SLOTS:
+        if is_missing_value(f, slots.get(f)):
+            qs.append(question_for_field(f))
+    return qs
+
 
 
 def make_summary(slots: dict) -> str:
@@ -402,6 +406,8 @@ def init_state():
         st.session_state.last_saved_record = None
     if "direccion_completa" not in st.session_state:
         st.session_state.direccion_completa = ""
+    if "current_question_field" not in st.session_state:
+        st.session_state.current_question_field = None
 
 
 APP_CSS = """
@@ -526,8 +532,8 @@ def app():
 
             # Histórico de chat
             for msg in st.session_state.messages:
-                role_icon = "🤖" if msg["role"] == "assistant" else "👤"
-                st.markdown(f"**{role_icon}** {msg['content']}")
+            role_icon = "🤖" if msg["role"] == "assistant" else "👤"
+            st.markdown(f"**{role_icon}** {msg['content']}", unsafe_allow_html=True)
 
             # Primer paso: descripción inicial en un área grande
             if not st.session_state.descripcion_original:
@@ -552,59 +558,75 @@ def app():
                             if extracted.get(k) is not None:
                                 st.session_state.slots[k] = extracted[k]
 
-                        # Preguntar SOLO la primera cosa que falte
-                        questions = make_questions(st.session_state.slots)
-                        if questions:
-                            first_q = questions[0]
-                            bot = (
-                                "Gracias, he leído la descripción. "
-                                "Para completar la ficha te iré haciendo algunas preguntas.\n\n"
-                                f"{first_q}"
-                            )
-                        else:
-                            bot = (
-                                "Perfecto, ya tengo lo necesario. "
-                                "Revisa la ficha a la derecha, luego pasa al Paso 2 (Inquilino) y guarda el piso."
-                            )
-                        st.session_state.messages.append(
-                            {"role": "assistant", "content": bot}
-                        )
-                        st.rerun()
+               # Preguntar SOLO la primera cosa que falte
+                questions = make_questions(st.session_state.slots)
+                if questions:
+                    missing = missing_required(st.session_state.slots)
+                    first_field = missing[0]
+                    st.session_state.current_question_field = first_field
+                    first_q = question_for_field(first_field)
+                    bot = (
+                        "Gracias, he leído la descripción. "
+                        "Para completar la ficha te iré haciendo algunas preguntas, una a una.\n\n"
+                        f"{first_q}"
+                    )
+                else:
+                    st.session_state.current_question_field = None
+                    bot = (
+                        "Perfecto, ya tengo lo necesario. "
+                        "Revisa la ficha a la derecha, luego pasa al Paso 2 (Inquilino) y guarda el piso."
+                    )
+                st.session_state.messages.append({"role": "assistant", "content": bot})
+                st.rerun()
+                
             else:
                 # Mensajes posteriores: ir rellenando campos que falten, pregunta a pregunta
                 prompt = st.chat_input("Responde a las preguntas o añade comentarios…")
                 if prompt:
                     st.session_state.messages.append({"role": "user", "content": prompt})
-
-                    missing = missing_required(st.session_state.slots)
-                    if missing:
-                        field = missing[0]
-                        value = normalize_field(field, prompt)
-                        st.session_state.slots[field] = value
+            
+                    # Si hay una pregunta activa, interpretamos la respuesta para ese campo
+                    current_field = st.session_state.current_question_field
+            
+                    if current_field:
+                        value = normalize_field(current_field, prompt)
+                        st.session_state.slots[current_field] = value
+            
+                        # Recalcular campos que faltan
                         missing = missing_required(st.session_state.slots)
-                        if missing:
-                            # Preguntar siguiente campo que falte (solo uno)
-                            next_qs = make_questions(st.session_state.slots)
-                            q = next_qs[0] if next_qs else "¿Puedes completar algún dato más del piso?"
+            
+                        if current_field in missing:
+                            # No se ha podido rellenar bien -> repetir misma pregunta
+                            q = question_for_field(current_field)
                             st.session_state.messages.append({"role": "assistant", "content": q})
                         else:
-                            st.session_state.messages.append(
-                                {
-                                    "role": "assistant",
-                                    "content": (
-                                        "¡Listo! Ya tengo todos los datos básicos del piso. "
-                                        "Revisa la ficha a la derecha y luego ve al Paso 2 (Inquilino) para completar tus preferencias "
-                                        "antes de pulsar **Guardar piso**."
-                                    ),
-                                }
-                            )
+                            # Avanzar al siguiente campo que falte
+                            if missing:
+                                next_field = missing[0]
+                                st.session_state.current_question_field = next_field
+                                q = question_for_field(next_field)
+                                st.session_state.messages.append({"role": "assistant", "content": q})
+                            else:
+                                # Ya no faltan campos obligatorios del piso
+                                st.session_state.current_question_field = None
+                                bot = (
+                                    "¡Listo! Ya tengo todos los datos básicos del piso.<br><br>"
+                                    "<span style='color:#1f6feb; font-weight:bold;'>1) Revisa la ficha del anuncio a la derecha</span><br>"
+                                    "<span style='color:#1f6feb; font-weight:bold;'>2) Ve a la pestaña «👥 Paso 2 · Inquilino»</span><br>"
+                                    "<span style='color:#1f6feb; font-weight:bold;'>3) Completa tus preferencias y pulsa «Guardar piso»</span>"
+                                )
+                                st.session_state.messages.append({"role": "assistant", "content": bot})
                     else:
+                        # No hay pregunta activa: tratamos el mensaje como comentario
                         st.session_state.messages.append(
                             {
                                 "role": "assistant",
                                 "content": "He anotado tu comentario. Ajusta en la ficha si lo necesitas.",
                             }
                         )
+
+           
+            
             st.markdown("</div>", unsafe_allow_html=True)
 
         # -------- Ficha del piso --------
