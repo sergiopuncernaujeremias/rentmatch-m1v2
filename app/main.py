@@ -452,4 +452,517 @@ APP_CSS = """
   font-size: 32px;
 }
 .rm-hero-text p {
-  margin: 4px 0
+  margin: 4px 0 0 0;
+  color: #f3f3f3;
+  font-size: 14px;
+}
+</style>
+"""
+
+
+def app():
+    st.set_page_config(page_title="RentMatch AI — Alta del piso", page_icon="🏠", layout="wide")
+    st.markdown(APP_CSS, unsafe_allow_html=True)
+
+    # Estado inicial + CSV
+    init_state()
+    ensure_csv_schema()
+
+    # Cabecera con imagen de fondo
+    st.markdown(
+        """
+        <div class="rm-hero">
+          <div class="rm-hero-overlay">
+            <div class="rm-hero-icon">🏠</div>
+            <div class="rm-hero-text">
+              <h1>RentMatch AI — M1</h1>
+              <p>Alta conversacional del piso · Demo Cloud</p>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Sidebar con estado y acciones rápidas
+    with st.sidebar:
+        st.write("### Progreso")
+        done = sum(1 for k in REQUIRED_SLOTS if not is_missing_value(k, st.session_state.slots.get(k)))
+        st.progress(done / len(REQUIRED_SLOTS))
+        st.write(f"Completados: **{done}/{len(REQUIRED_SLOTS)}**")
+
+        st.write("### Pasos")
+        st.markdown(
+            "- 1) Describe y completa los datos del piso\n"
+            "- 2) Define tus preferencias sobre inquilinos\n"
+            "- 3) Revisa y **Guarda**"
+        )
+        st.write("### Enlaces")
+        st.markdown(
+            "- Supabase (si conectado)\n"
+            "- n8n Webhook (si configurado)",
+        )
+        st.divider()
+        st.write("### Info")
+        st.markdown(
+            "<span class='rm-muted'>Los datos se normalizan localmente y se envían a n8n al guardar.</span>",
+            unsafe_allow_html=True
+        )
+
+    # Pestañas: Paso 1 (piso), Paso 2 (preferencias) y datos
+    tab_piso, tab_prefs, tab_datos = st.tabs(
+        ["🏠 Paso 1 · Piso", "👥 Paso 2 · Inquilino", "📊 Datos & Hooks"]
+    )
+
+    # ===== TAB PASO 1: Conversación (izq) + Ficha (dcha) =====
+    with tab_piso:
+        col_chat, col_ficha = st.columns([2, 1])
+
+        # -------- Conversación --------
+        with col_chat:
+            st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
+            st.subheader("Describe tu piso")
+            st.caption("Escribe libremente. Solo te preguntaremos lo imprescindible.")
+
+            # Histórico de chat
+            for msg in st.session_state.messages:
+                role_icon = "🤖" if msg["role"] == "assistant" else "👤"
+                st.markdown(f"**{role_icon}** {msg['content']}")
+
+            # Primer paso: descripción inicial en un área grande
+            if not st.session_state.descripcion_original:
+                desc_text = st.text_area(
+                    "Escribe aquí la descripción inicial del piso",
+                    key="descripcion_inicial_input",
+                    height=220,
+                    placeholder="Ej.: Piso luminoso de 80m2 en el Eixample, 3 habitaciones..."
+                )
+                if st.button("Enviar descripción inicial"):
+                    if desc_text and desc_text.strip():
+                        # Guardar mensaje de usuario
+                        st.session_state.messages.append(
+                            {"role": "user", "content": desc_text}
+                        )
+                        st.session_state.descripcion_original = desc_text
+
+                        # Extraer slots con LLM
+                        with st.spinner("Analizando descripción…"):
+                            extracted = extract_slots(desc_text)
+                        for k in ALL_SLOTS:
+                            if extracted.get(k) is not None:
+                                st.session_state.slots[k] = extracted[k]
+
+                        # Preguntar SOLO la primera cosa que falte
+                        questions = make_questions(st.session_state.slots)
+                        if questions:
+                            first_q = questions[0]
+                            bot = (
+                                "Gracias, he leído la descripción. "
+                                "Para completar la ficha te iré haciendo algunas preguntas.\n\n"
+                                f"{first_q}"
+                            )
+                        else:
+                            bot = (
+                                "Perfecto, ya tengo lo necesario. "
+                                "Revisa la ficha a la derecha, luego pasa al Paso 2 (Inquilino) y guarda el piso."
+                            )
+                        st.session_state.messages.append(
+                            {"role": "assistant", "content": bot}
+                        )
+                        st.experimental_rerun()
+            else:
+                # Mensajes posteriores: ir rellenando campos que falten, pregunta a pregunta
+                prompt = st.chat_input("Responde a las preguntas o añade comentarios…")
+                if prompt:
+                    st.session_state.messages.append({"role": "user", "content": prompt})
+
+                    missing = missing_required(st.session_state.slots)
+                    if missing:
+                        field = missing[0]
+                        value = normalize_field(field, prompt)
+                        st.session_state.slots[field] = value
+                        missing = missing_required(st.session_state.slots)
+                        if missing:
+                            # Preguntar siguiente campo que falte (solo uno)
+                            next_qs = make_questions(st.session_state.slots)
+                            q = next_qs[0] if next_qs else "¿Puedes completar algún dato más del piso?"
+                            st.session_state.messages.append({"role": "assistant", "content": q})
+                        else:
+                            st.session_state.messages.append(
+                                {
+                                    "role": "assistant",
+                                    "content": (
+                                        "¡Listo! Ya tengo todos los datos básicos del piso. "
+                                        "Revisa la ficha a la derecha y luego ve al Paso 2 (Inquilino) para completar tus preferencias "
+                                        "antes de pulsar **Guardar piso**."
+                                    ),
+                                }
+                            )
+                    else:
+                        st.session_state.messages.append(
+                            {
+                                "role": "assistant",
+                                "content": "He anotado tu comentario. Ajusta en la ficha si lo necesitas.",
+                            }
+                        )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # -------- Ficha del piso --------
+        with col_ficha:
+            st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
+            st.subheader("Ficha del anuncio")
+
+            # Campos en dos columnas
+            c1, c2 = st.columns(2)
+            with c1:
+                for k in ["precio", "barrio_ciudad", "m2", "habitaciones", "banos", "disponibilidad"]:
+                    v = st.session_state.slots.get(k)
+                    st.session_state.slots[k] = st.text_input(
+                        k, value="" if v is None else str(v)
+                    )
+            with c2:
+                for k in ["planta", "ascensor", "amueblado", "mascotas", "estado"]:
+                    v = st.session_state.slots.get(k)
+                    st.session_state.slots[k] = st.text_input(
+                        k, value="" if v is None else str(v)
+                    )
+
+            # Dirección exacta para enriquecimiento (opcional)
+            st.session_state.direccion_completa = st.text_input(
+                "Dirección completa (para enriquecimiento M2, opcional)",
+                value=st.session_state.direccion_completa
+            )
+
+            st.write("---")
+            st.write("**Resumen generado por la IA:**")
+            st.info(make_summary(st.session_state.slots))
+
+            problems = validate_slots(st.session_state.slots)
+            if problems:
+                st.warning(" ; ".join(problems))
+
+            st.caption(
+                "Cuando tengas esta ficha lista, pasa al **Paso 2 · Inquilino** para definir preferencias y guardar el piso."
+            )
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    # ===== TAB PASO 2: Preferencias sobre el inquilino + Guardar =====
+    with tab_prefs:
+        st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
+        st.subheader("Preferencias sobre el inquilino")
+
+        st.caption(
+            "Paso 2 de 2 · Estas preferencias se usarán después para priorizar candidatos cuando haya varias solicitudes."
+        )
+
+        # Pequeño resumen del piso arriba, para contexto
+        st.write("**Resumen del piso:**")
+        st.info(make_summary(st.session_state.slots))
+
+        st.write("---")
+
+        # Widgets de preferencias
+        max_ocupantes = st.number_input(
+            "Número máximo de ocupantes",
+            min_value=1,
+            max_value=20,
+            step=1,
+            key="max_ocupantes"
+        )
+
+        admite_mascotas_inquilino_str = st.selectbox(
+            "¿Aceptarías inquilinos con mascotas?",
+            ["Sí", "No"],
+            key="admite_mascotas_inquilino_str"
+        )
+
+        edad_minima = st.number_input(
+            "Edad mínima de los inquilinos (opcional)",
+            min_value=0,
+            max_value=120,
+            step=1,
+            key="edad_minima"
+        )
+
+        tipos_inquilino_preferidos_list = st.multiselect(
+            "Tipo de inquilino preferido",
+            ["Individuo", "Pareja", "Familia", "Estudiantes", "Compartir piso"],
+            key="tipos_inquilino_preferidos_list"
+        )
+
+        ingreso_minimo = st.number_input(
+            "Ingreso mínimo mensual total requerido (opcional, €)",
+            min_value=0,
+            step=100,
+            key="ingreso_minimo"
+        )
+
+        duracion_minima = st.number_input(
+            "Duración mínima deseada del alquiler (meses)",
+            min_value=1,
+            max_value=120,
+            step=1,
+            key="duracion_minima"
+        )
+
+        duracion_maxima = st.number_input(
+            "Duración máxima aceptada (opcional, meses)",
+            min_value=0,
+            max_value=240,
+            step=1,
+            key="duracion_maxima"
+        )
+
+        contrato_estable_str = st.selectbox(
+            "¿Quieres contrato laboral estable (indefinido/fijo) como preferencia?",
+            ["Sí", "No"],
+            key="contrato_estable_str"
+        )
+
+        autonomo_aceptado_str = st.selectbox(
+            "¿Aceptas autónomos?",
+            ["Sin preferencia", "Sí", "No"],
+            key="autonomo_aceptado_str"
+        )
+
+        freelance_aceptado_str = st.selectbox(
+            "¿Aceptas freelance / ingresos variables?",
+            ["Sin preferencia", "Sí", "No"],
+            key="freelance_aceptado_str"
+        )
+
+        fumadores_permitidos_str = st.selectbox(
+            "¿Permites fumadores dentro de la vivienda?",
+            ["Sí", "No"],
+            key="fumadores_permitidos_str"
+        )
+
+        perfil_tranquilo_str = st.selectbox(
+            "¿Prefieres explícitamente un perfil tranquilo?",
+            ["Sin preferencia", "Sí", "No"],
+            key="perfil_tranquilo_str"
+        )
+
+        normas_especiales = st.text_area(
+            "Normas especiales de la vivienda / comunidad (opcional)",
+            key="normas_especiales"
+        )
+
+        prioridades_seleccion = st.selectbox(
+            "¿Qué pesa más para ti al elegir un inquilino?",
+            [
+                "Solvencia",
+                "Estabilidad laboral",
+                "Duración del contrato",
+                "Ausencia de mascotas",
+                "Perfil familiar",
+                "Rapidez de disponibilidad",
+            ],
+            key="prioridades_seleccion"
+        )
+
+        observaciones_perfil_inquilino = st.text_area(
+            "Observaciones sobre el tipo de inquilino deseado (opcional)",
+            key="observaciones_perfil_inquilino"
+        )
+
+        st.write("---")
+        cta_col1, cta_col2 = st.columns([1, 2])
+        with cta_col1:
+            save_click = st.button("💾 Guardar piso", type="primary")
+        with cta_col2:
+            st.caption(
+                "Se almacenará en CSV (efímero) y se enviará a n8n / Supabase si están configurados."
+            )
+
+        if save_click:
+            # Validación de campos obligatorios de preferencias
+            pref_errors = []
+            if not tipos_inquilino_preferidos_list:
+                pref_errors.append("Debes seleccionar al menos un tipo de inquilino preferido.")
+            if max_ocupantes < 1:
+                pref_errors.append("Indica el número máximo de ocupantes.")
+            if duracion_minima < 1:
+                pref_errors.append("Indica la duración mínima deseada del alquiler (meses).")
+
+            if pref_errors:
+                st.error("Faltan datos en preferencias del inquilino: " + " | ".join(pref_errors))
+            else:
+                missing = missing_required(st.session_state.slots)
+                if missing:
+                    st.error("Faltan campos obligatorios del piso: " + ", ".join(missing))
+                else:
+                    # Generar ID del piso
+                    id_piso = str(uuid.uuid4())
+
+                    # Campos base del piso (desde slots)
+                    precio = st.session_state.slots.get("precio")
+                    barrio_ciudad = st.session_state.slots.get("barrio_ciudad")
+                    m2 = st.session_state.slots.get("m2")
+                    habitaciones = st.session_state.slots.get("habitaciones")
+                    banos = st.session_state.slots.get("banos")
+                    planta = st.session_state.slots.get("planta")
+                    ascensor = st.session_state.slots.get("ascensor")
+                    amueblado = st.session_state.slots.get("amueblado")
+                    mascotas = st.session_state.slots.get("mascotas")
+                    disponibilidad = st.session_state.slots.get("disponibilidad")
+                    estado = st.session_state.slots.get("estado")
+
+                    # Campo mascotas obligatorio en BD: si falta, guardarlo como cadena vacía
+                    if mascotas is None:
+                        mascotas = ""
+
+                    # Construir registro COMPLETO (piso + preferencias)
+                    rec = {
+                        "id_piso": id_piso,
+                        "descripcion_original": st.session_state.descripcion_original,
+                        "descripcion_ia": make_summary(st.session_state.slots),
+
+                        # Datos del piso
+                        "precio": precio,
+                        "barrio_ciudad": barrio_ciudad,
+                        "m2": m2,
+                        "habitaciones": habitaciones,
+                        "banos": banos,
+                        "planta": planta,
+                        "ascensor": ascensor,
+                        "amueblado": amueblado,
+                        "mascotas": mascotas,
+                        "disponibilidad": disponibilidad,
+                        "estado": estado,
+
+                        # Campos M2/M3
+                        "distancia_metro_m": None,
+                        "score_conectividad": None,
+                        "score_visual_global": None,
+                        "fotos_faltantes_sugeridas": None,
+
+                        # Preferencias del arrendador
+                        "max_ocupantes": int(max_ocupantes),
+                        "admite_mascotas_inquilino": True if admite_mascotas_inquilino_str == "Sí" else False,
+                        "edad_minima": int(edad_minima) if edad_minima > 0 else None,
+                        "tipos_inquilino_preferidos": ",".join(tipos_inquilino_preferidos_list) if tipos_inquilino_preferidos_list else None,
+                        "ingreso_minimo": float(ingreso_minimo) if ingreso_minimo > 0 else None,
+                        "duracion_minima": int(duracion_minima),
+                        "duracion_maxima": int(duracion_maxima) if duracion_maxima > 0 else None,
+                        "contrato_estable": True if contrato_estable_str == "Sí" else False,
+                        "autonomo_aceptado": None if autonomo_aceptado_str == "Sin preferencia" else (autonomo_aceptado_str == "Sí"),
+                        "freelance_aceptado": None if freelance_aceptado_str == "Sin preferencia" else (freelance_aceptado_str == "Sí"),
+                        "fumadores_permitidos": True if fumadores_permitidos_str == "Sí" else False,
+                        "perfil_tranquilo": None if perfil_tranquilo_str == "Sin preferencia" else (perfil_tranquilo_str == "Sí"),
+                        "normas_especiales": normas_especiales or None,
+                        "prioridades_seleccion": prioridades_seleccion,
+                        "observaciones_perfil_inquilino": observaciones_perfil_inquilino or None,
+
+                        "created_at": datetime.utcnow().isoformat(),
+                    }
+
+                    # DEBUG: ver en pantalla qué se está enviando
+                    st.write("Payload enviado a n8n / Supabase:")
+                    st.json(rec)
+
+                    save_listing(rec)
+
+                    # Guardar en estado para botones posteriores
+                    st.session_state.last_saved_property_id = id_piso
+                    st.session_state.last_saved_record = rec
+
+                    st.success("✅ Guardado correcto. Enviado a n8n/Supabase si procede.")
+
+        st.write("---")
+        st.subheader("Acciones sobre este piso")
+
+        id_piso_guardado = st.session_state.last_saved_property_id
+        rec_guardado = st.session_state.last_saved_record
+
+        if not id_piso_guardado or not rec_guardado:
+            st.info("Guarda primero el piso para habilitar las acciones adicionales.")
+        else:
+            # Botón 1: subir fotos y scoring (M3 real vía n8n)
+            if st.button("📸 Subir fotos y puntuar calidad"):
+                if not N8N_WEBHOOK_FOTOS:
+                    st.error("No está configurado N8N_WEBHOOK_FOTOS en el entorno.")
+                else:
+                    try:
+                        payload_fotos = {
+                            "id_piso": id_piso_guardado,
+                            "barrio_ciudad": rec_guardado.get("barrio_ciudad"),
+                            "precio": rec_guardado.get("precio"),
+                            "m2": rec_guardado.get("m2"),
+                        }
+                        resp_fotos = requests.post(N8N_WEBHOOK_FOTOS, json=payload_fotos, timeout=10)
+                        resp_fotos.raise_for_status()
+                        st.success("He lanzado el flujo de subida de fotos y scoring en n8n.")
+                    except Exception as e:
+                        st.error(f"Error lanzando el flujo de fotos: {e}")
+
+            # Botón 2: enriquecimiento por Google Maps / servicios (M2 real vía n8n)
+            if st.button("📍 Enriquecer datos de la zona (Google Maps)"):
+                direccion = st.session_state.direccion_completa or rec_guardado.get("barrio_ciudad")
+                if not direccion:
+                    st.warning("Necesito una dirección o al menos barrio/ciudad para enriquecer la zona.")
+                elif not N8N_WEBHOOK_ENRIQUECIMIENTO:
+                    st.error("No está configurado N8N_WEBHOOK_ENRIQUECIMIENTO en el entorno.")
+                else:
+                    try:
+                        payload_enriq = {
+                            "id_piso": id_piso_guardado,
+                            "direccion": direccion,
+                            "barrio_ciudad": rec_guardado.get("barrio_ciudad"),
+                            "precio": rec_guardado.get("precio"),
+                            "m2": rec_guardado.get("m2"),
+                        }
+                        resp_enriq = requests.post(
+                            N8N_WEBHOOK_ENRIQUECIMIENTO,
+                            json=payload_enriq,
+                            timeout=10
+                        )
+                        resp_enriq.raise_for_status()
+                        st.success("He lanzado el flujo de enriquecimiento de datos de entorno en n8n.")
+                    except Exception as e:
+                        st.error(f"Error lanzando el flujo de enriquecimiento: {e}")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ===== TAB: Datos & Hooks (simulados) =====
+    with tab_datos:
+        st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
+        st.subheader("Datos recientes y acciones")
+
+        # Mostrar últimas filas del CSV (si existe)
+        try:
+            df = pd.read_csv(CSV_FILE)
+            st.dataframe(df.tail(5), use_container_width=True)
+        except Exception:
+            st.caption("No hay datos aún.")
+
+        st.write("---")
+        st.write("**Hooks de demostración (simulados en local)**")
+        hc1, hc2 = st.columns(2)
+        with hc1:
+            if st.button("🛰️ Enriquecer entorno (M2 simulado)"):
+                try:
+                    df = pd.read_csv(CSV_FILE)
+                    df.iloc[-1, df.columns.get_loc("distancia_metro_m")] = 350
+                    df.iloc[-1, df.columns.get_loc("score_conectividad")] = 0.78
+                    df.to_csv(CSV_FILE, index=False)
+                    st.toast("Datos de entorno simulados añadidos.")
+                except Exception:
+                    st.error("No hay registros para actualizar.")
+        with hc2:
+            if st.button("🖼️ Analizar fotos (M3 simulado)"):
+                try:
+                    df = pd.read_csv(CSV_FILE)
+                    df.iloc[-1, df.columns.get_loc("score_visual_global")] = 0.72
+                    df.iloc[-1, df.columns.get_loc("fotos_faltantes_sugeridas")] = "fachada, salón, dormitorio principal"
+                    df.to_csv(CSV_FILE, index=False)
+                    st.toast("Campos de análisis visual simulados añadidos.")
+                except Exception:
+                    st.error("No hay registros para actualizar.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+if __name__ == "__main__":
+    app()
