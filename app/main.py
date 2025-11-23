@@ -531,13 +531,10 @@ def app():
             st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
             st.subheader("Describe tu piso")
             st.caption("Escribe libremente. Solo te preguntaremos lo imprescindible.")
-
-            # Histórico de chat
-            for msg in st.session_state.messages:
-                role_icon = "🤖" if msg["role"] == "assistant" else "👤"
-                st.markdown(f"**{role_icon}** {msg['content']}", unsafe_allow_html=True)
-
-            # Primer paso: descripción inicial en un área grande
+        
+            # 1) INTERACCIÓN PRINCIPAL
+        
+            # a) Primer paso: descripción inicial del piso
             if not st.session_state.descripcion_original:
                 desc_text = st.text_area(
                     "Escribe aquí la descripción inicial del piso",
@@ -552,83 +549,86 @@ def app():
                             {"role": "user", "content": desc_text}
                         )
                         st.session_state.descripcion_original = desc_text
-
+        
                         # Extraer slots con LLM
                         with st.spinner("Analizando descripción…"):
                             extracted = extract_slots(desc_text)
                         for k in ALL_SLOTS:
                             if extracted.get(k) is not None:
                                 st.session_state.slots[k] = extracted[k]
-
-                        # Preguntar SOLO el primer campo que falte
-                        missing = missing_required(st.session_state.slots)
-                        if missing:
-                            first_field = missing[0]
-                            st.session_state.current_question_field = first_field
-                            first_q = question_for_field(first_field)
-                            bot = (
-                                "Gracias, he leído la descripción. "
-                                "Para completar la ficha te iré haciendo algunas preguntas, una a una.\n\n"
-                                f"{first_q}"
-                            )
-                        else:
-                            st.session_state.current_question_field = None
-                            bot = (
-                                "Perfecto, ya tengo lo necesario. "
-                                "Revisa la ficha a la derecha, luego pasa al Paso 2 (Inquilino) y guarda el piso."
-                            )
-
-                        st.session_state.messages.append(
-                            {"role": "assistant", "content": bot}
+        
+                        # Mensaje de cierre de esta fase
+                        bot = (
+                            "Gracias, he leído la descripción y he rellenado los datos que he podido. "
+                            "Cuando quieras, pulsa el botón **«Comprobar campos obligatorios»** para que revisemos "
+                            "qué falta y te haga preguntas puntuales."
                         )
-                        st.rerun()
+                        st.session_state.messages.append({"role": "assistant", "content": bot})
             else:
-                # Mensajes posteriores: ir rellenando campos que falten, pregunta a pregunta
+                # b) Ya hay descripción: chat para responder a preguntas o comentar
                 prompt = st.chat_input("Responde a las preguntas o añade comentarios…")
                 if prompt:
                     st.session_state.messages.append({"role": "user", "content": prompt})
-
+        
                     current_field = st.session_state.current_question_field
-
+        
                     if current_field:
+                        # Interpretar la respuesta como valor del campo que estamos preguntando
                         value = normalize_field(current_field, prompt)
                         st.session_state.slots[current_field] = value
-
-                        # Recalcular campos que faltan
-                        missing = missing_required(st.session_state.slots)
-
-                        if current_field in missing:
-                            # No se ha podido rellenar bien -> repetir misma pregunta
-                            q = question_for_field(current_field)
-                            st.session_state.messages.append({"role": "assistant", "content": q})
-                        else:
-                            # Avanzar al siguiente campo que falte
-                            if missing:
-                                next_field = missing[0]
-                                st.session_state.current_question_field = next_field
-                                q = question_for_field(next_field)
-                                st.session_state.messages.append({"role": "assistant", "content": q})
-                            else:
-                                # Ya no faltan campos obligatorios del piso
-                                st.session_state.current_question_field = None
-                                bot = (
-                                    "¡Listo! Ya tengo todos los datos básicos del piso.<br><br>"
-                                    "<span style='color:#1f6feb; font-weight:bold;'>1) Revisa la ficha del anuncio a la derecha</span><br>"
-                                    "<span style='color:#1f6feb; font-weight:bold;'>2) Ve a la pestaña «👥 Paso 2 · Inquilino»</span><br>"
-                                    "<span style='color:#1f6feb; font-weight:bold;'>3) Completa tus preferencias y pulsa «Guardar piso»</span>"
-                                )
-                                st.session_state.messages.append({"role": "assistant", "content": bot})
-                    else:
-                        # No hay pregunta activa: tratamos el mensaje como comentario
+                        st.session_state.current_question_field = None
+        
                         st.session_state.messages.append(
                             {
                                 "role": "assistant",
-                                "content": "He anotado tu comentario. Ajusta en la ficha si lo necesitas.",
+                                "content": (
+                                    f"He anotado el dato para **{current_field}**. "
+                                    "Si quieres que revise si falta algo más, pulsa el botón "
+                                    "**«Comprobar campos obligatorios»**."
+                                ),
                             }
                         )
-             # Forzar rerender para que se vea enseguida la siguiente pregunta / mensaje
-            st.rerun()
+                    else:
+                        # No hay pregunta activa: comentario general
+                        st.session_state.messages.append(
+                            {
+                                "role": "assistant",
+                                "content": (
+                                    "He anotado tu comentario. Puedes ajustar los campos en la ficha de la derecha "
+                                    "o pulsar **«Comprobar campos obligatorios»** para revisar qué falta."
+                                ),
+                            }
+                        )
+        
+            # 2) BOTÓN DE COMPROBACIÓN DE CAMPOS
+            check_click = st.button("🔍 Comprobar campos obligatorios")
+            if check_click:
+                missing = missing_required(st.session_state.slots)
+                if missing:
+                    # Preguntar solo por el primer campo que falte
+                    field = missing[0]
+                    st.session_state.current_question_field = field
+                    q = question_for_field(field)
+                    st.session_state.messages.append({"role": "assistant", "content": q})
+                else:
+                    # Todo completo: mensaje final con pasos en azul
+                    st.session_state.current_question_field = None
+                    bot = (
+                        "¡Listo! Ya tengo todos los datos básicos del piso.<br><br>"
+                        "<span style='color:#1f6feb; font-weight:bold;'>1) Revisa la ficha del anuncio a la derecha</span><br>"
+                        "<span style='color:#1f6feb; font-weight:bold;'>2) Ve a la pestaña «👥 Paso 2 · Inquilino»</span><br>"
+                        "<span style='color:#1f6feb; font-weight:bold;'>3) Completa tus preferencias y pulsa «Guardar piso»</span>"
+                    )
+                    st.session_state.messages.append({"role": "assistant", "content": bot})
+        
+            # 3) HISTÓRICO DE MENSAJES (SIEMPRE AL FINAL, TRAS GESTIONAR EVENTOS)
+            st.write("---")
+            for msg in st.session_state.messages:
+                role_icon = "🤖" if msg["role"] == "assistant" else "👤"
+                st.markdown(f"**{role_icon}** {msg['content']}", unsafe_allow_html=True)
+        
             st.markdown("</div>", unsafe_allow_html=True)
+
 
         # -------- Ficha del piso --------
         with col_ficha:
