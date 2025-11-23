@@ -531,7 +531,7 @@ def app():
             st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
             st.subheader("Describe tu piso")
             st.caption("Escribe libremente. Solo te preguntaremos lo imprescindible.")
-        
+
             # 1) DESCRIPCIÓN INICIAL DEL PISO
             if not st.session_state.descripcion_original:
                 desc_text = st.text_area(
@@ -547,14 +547,14 @@ def app():
                             {"role": "user", "content": desc_text}
                         )
                         st.session_state.descripcion_original = desc_text
-        
+
                         # Extraer slots con LLM
                         with st.spinner("Analizando descripción…"):
                             extracted = extract_slots(desc_text)
                         for k in ALL_SLOTS:
                             if extracted.get(k) is not None:
                                 st.session_state.slots[k] = extracted[k]
-        
+
                         # Mensaje de cierre de esta fase
                         bot = (
                             "Gracias, he leído la descripción y he rellenado los datos que he podido. "
@@ -568,15 +568,15 @@ def app():
                     "Usa el chat para responder dudas y el botón **«Comprobar campos obligatorios»** "
                     "para que te pregunte por los campos que falten."
                 )
-        
+
             st.write("")
-        
+
             # 2) BOTÓN SIEMPRE VISIBLE (DESACTIVADO HASTA QUE HAY DESCRIPCIÓN)
             check_click = st.button(
                 "🔍 Comprobar campos obligatorios",
                 disabled=not bool(st.session_state.descripcion_original),
             )
-        
+
             if check_click:
                 missing = missing_required(st.session_state.slots)
                 if missing:
@@ -595,19 +595,19 @@ def app():
                         "<span style='color:#1f6feb; font-weight:bold;'>3) Completa tus preferencias y pulsa «Guardar piso»</span>"
                     )
                     st.session_state.messages.append({"role": "assistant", "content": bot})
-        
+
             # 3) CHAT PARA RESPONDER A LAS PREGUNTAS
             prompt = st.chat_input("Responde a las preguntas o añade comentarios…")
             if prompt:
                 st.session_state.messages.append({"role": "user", "content": prompt})
-        
+
                 field = st.session_state.current_question_field
                 if field:
                     # Interpretar la respuesta como valor del campo que se está preguntando
                     value = normalize_field(field, prompt)
                     st.session_state.slots[field] = value
                     st.session_state.current_question_field = None
-        
+
                     st.session_state.messages.append(
                         {
                             "role": "assistant",
@@ -629,16 +629,14 @@ def app():
                             ),
                         }
                     )
-        
+
             # 4) HISTÓRICO DE MENSAJES
             st.write("---")
             for msg in st.session_state.messages:
                 role_icon = "🤖" if msg["role"] == "assistant" else "👤"
                 st.markdown(f"**{role_icon}** {msg['content']}", unsafe_allow_html=True)
-        
+
             st.markdown("</div>", unsafe_allow_html=True)
-
-
 
         # -------- Ficha del piso --------
         with col_ficha:
@@ -706,7 +704,7 @@ def app():
 
         admite_mascotas_inquilino_str = st.selectbox(
             "¿Aceptarías inquilinos con mascotas?",
-            ["No", "Sí"],
+            ["Sí", "No"],
             key="admite_mascotas_inquilino_str"
         )
 
