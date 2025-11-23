@@ -694,7 +694,7 @@ def app():
 
         admite_mascotas_inquilino_str = st.selectbox(
             "¿Aceptarías inquilinos con mascotas?",
-            ["Sí", "No"],
+            ["No", "Sí"],
             key="admite_mascotas_inquilino_str"
         )
 
