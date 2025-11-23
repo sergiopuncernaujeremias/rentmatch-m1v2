@@ -532,9 +532,7 @@ def app():
             st.subheader("Describe tu piso")
             st.caption("Escribe libremente. Solo te preguntaremos lo imprescindible.")
         
-            # 1) INTERACCIÓN PRINCIPAL
-        
-            # a) Primer paso: descripción inicial del piso
+            # 1) DESCRIPCIÓN INICIAL DEL PISO
             if not st.session_state.descripcion_original:
                 desc_text = st.text_area(
                     "Escribe aquí la descripción inicial del piso",
@@ -560,48 +558,25 @@ def app():
                         # Mensaje de cierre de esta fase
                         bot = (
                             "Gracias, he leído la descripción y he rellenado los datos que he podido. "
-                            "Cuando quieras, pulsa el botón **«Comprobar campos obligatorios»** para que revisemos "
-                            "qué falta y te haga preguntas puntuales."
+                            "Cuando quieras, pulsa el botón **«Comprobar campos obligatorios»** para revisar "
+                            "qué falta y que te vaya preguntando."
                         )
                         st.session_state.messages.append({"role": "assistant", "content": bot})
             else:
-                # b) Ya hay descripción: chat para responder a preguntas o comentar
-                prompt = st.chat_input("Responde a las preguntas o añade comentarios…")
-                if prompt:
-                    st.session_state.messages.append({"role": "user", "content": prompt})
+                st.info(
+                    "La descripción inicial ya está registrada. "
+                    "Usa el chat para responder dudas y el botón **«Comprobar campos obligatorios»** "
+                    "para que te pregunte por los campos que falten."
+                )
         
-                    current_field = st.session_state.current_question_field
+            st.write("")
         
-                    if current_field:
-                        # Interpretar la respuesta como valor del campo que estamos preguntando
-                        value = normalize_field(current_field, prompt)
-                        st.session_state.slots[current_field] = value
-                        st.session_state.current_question_field = None
+            # 2) BOTÓN SIEMPRE VISIBLE (DESACTIVADO HASTA QUE HAY DESCRIPCIÓN)
+            check_click = st.button(
+                "🔍 Comprobar campos obligatorios",
+                disabled=not bool(st.session_state.descripcion_original),
+            )
         
-                        st.session_state.messages.append(
-                            {
-                                "role": "assistant",
-                                "content": (
-                                    f"He anotado el dato para **{current_field}**. "
-                                    "Si quieres que revise si falta algo más, pulsa el botón "
-                                    "**«Comprobar campos obligatorios»**."
-                                ),
-                            }
-                        )
-                    else:
-                        # No hay pregunta activa: comentario general
-                        st.session_state.messages.append(
-                            {
-                                "role": "assistant",
-                                "content": (
-                                    "He anotado tu comentario. Puedes ajustar los campos en la ficha de la derecha "
-                                    "o pulsar **«Comprobar campos obligatorios»** para revisar qué falta."
-                                ),
-                            }
-                        )
-        
-            # 2) BOTÓN DE COMPROBACIÓN DE CAMPOS
-            check_click = st.button("🔍 Comprobar campos obligatorios")
             if check_click:
                 missing = missing_required(st.session_state.slots)
                 if missing:
@@ -621,13 +596,48 @@ def app():
                     )
                     st.session_state.messages.append({"role": "assistant", "content": bot})
         
-            # 3) HISTÓRICO DE MENSAJES (SIEMPRE AL FINAL, TRAS GESTIONAR EVENTOS)
+            # 3) CHAT PARA RESPONDER A LAS PREGUNTAS
+            prompt = st.chat_input("Responde a las preguntas o añade comentarios…")
+            if prompt:
+                st.session_state.messages.append({"role": "user", "content": prompt})
+        
+                field = st.session_state.current_question_field
+                if field:
+                    # Interpretar la respuesta como valor del campo que se está preguntando
+                    value = normalize_field(field, prompt)
+                    st.session_state.slots[field] = value
+                    st.session_state.current_question_field = None
+        
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": (
+                                f"He anotado el dato para **{field}**. "
+                                "Si quieres que revise si falta algo más, pulsa de nuevo "
+                                "**«Comprobar campos obligatorios»**."
+                            ),
+                        }
+                    )
+                else:
+                    # No hay pregunta activa: comentario general
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": (
+                                "He anotado tu comentario. Puedes ajustar la ficha a la derecha "
+                                "o usar el botón **«Comprobar campos obligatorios»** para revisar qué falta."
+                            ),
+                        }
+                    )
+        
+            # 4) HISTÓRICO DE MENSAJES
             st.write("---")
             for msg in st.session_state.messages:
                 role_icon = "🤖" if msg["role"] == "assistant" else "👤"
                 st.markdown(f"**{role_icon}** {msg['content']}", unsafe_allow_html=True)
         
             st.markdown("</div>", unsafe_allow_html=True)
+
 
 
         # -------- Ficha del piso --------
