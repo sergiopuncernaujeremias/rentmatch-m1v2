@@ -581,6 +581,7 @@ def app():
                         st.session_state.messages.append(
                             {"role": "assistant", "content": bot}
                         )
+                        st.rerun()
             else:
                 # Mensajes posteriores: ir rellenando campos que falten, pregunta a pregunta
                 prompt = st.chat_input("Responde a las preguntas o añade comentarios…")
@@ -625,7 +626,8 @@ def app():
                                 "content": "He anotado tu comentario. Ajusta en la ficha si lo necesitas.",
                             }
                         )
-
+             # Forzar rerender para que se vea enseguida la siguiente pregunta / mensaje
+            st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
         # -------- Ficha del piso --------
