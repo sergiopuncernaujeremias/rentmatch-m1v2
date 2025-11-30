@@ -7,7 +7,6 @@ from datetime import datetime
 from openai import OpenAI
 import requests  # para conectar con n8n
 import re
-
 # ------------------------------
 # Configuración inicial
 # ------------------------------
@@ -15,17 +14,13 @@ MODEL = "gpt-4o-mini"  # económico y rápido
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise RuntimeError("Falta la variable de entorno OPENAI_API_KEY")
-
 client = OpenAI(api_key=OPENAI_API_KEY)
-
 DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "data")
 CSV_FILE = os.path.abspath(os.path.join(DATA_PATH, "pisos.csv"))
-
 # Webhooks n8n
 N8N_WEBHOOK = os.getenv("N8N_WEBHOOK_URL")  # alta del piso (ya existente)
 N8N_WEBHOOK_FOTOS = os.getenv("N8N_WEBHOOK_FOTOS")  # flujo de fotos + scoring
 N8N_WEBHOOK_ENRIQUECIMIENTO = os.getenv("N8N_WEBHOOK_ENRIQUECIMIENTO")  # flujo Google Maps / servicios
-
 # Ahora ascensor, amueblado y mascotas son obligatorios
 REQUIRED_SLOTS = [
     "precio", "barrio_ciudad", "m2", "habitaciones", "banos",
@@ -35,7 +30,6 @@ OPTIONAL_SLOTS = [
     "planta", "estado"
 ]
 ALL_SLOTS = REQUIRED_SLOTS + OPTIONAL_SLOTS
-
 # Campos nuevos de preferencias del arrendador sobre el inquilino
 PREF_FIELDS = [
     "max_ocupantes",
@@ -54,8 +48,6 @@ PREF_FIELDS = [
     "prioridades_seleccion",
     "observaciones_perfil_inquilino",
 ]
-
-
 # ------------------------------
 # Utilidades de datos
 # ------------------------------
@@ -91,8 +83,6 @@ def ensure_csv_schema():
             if c not in cols_existentes:
                 df[c] = None
         df.to_csv(CSV_FILE, index=False)
-
-
 def save_listing(record):
     # Guarda en CSV local
     df = pd.read_csv(CSV_FILE)
@@ -104,8 +94,6 @@ def save_listing(record):
             requests.post(N8N_WEBHOOK, json=record, timeout=5)
         except Exception as e:
             print("No se pudo enviar a n8n:", e)
-
-
 # ------------------------------
 # LLM: extracción de campos
 # ------------------------------
@@ -124,7 +112,6 @@ def extract_slots(description: str) -> dict:
     user_prompt = (
         "Texto del propietario: " + description + "\n\nDevuelve SOLO el JSON, sin texto adicional."
     )
-
     resp = client.chat.completions.create(
         model=MODEL,
         messages=[
@@ -142,25 +129,20 @@ def extract_slots(description: str) -> dict:
     for k in ALL_SLOTS:
         data.setdefault(k, None)
     return data
-
-
 # ------------------------------
 # Validaciones y helpers
 # ------------------------------
 def validate_slots(slots: dict) -> list:
     problems = []
-
     def to_int(v):
         try:
             return int(v)
         except:
             return None
-
     m2 = to_int(slots.get("m2"))
     hab = to_int(slots.get("habitaciones"))
     ban = to_int(slots.get("banos"))
     precio = to_int(slots.get("precio"))
-
     if m2 and m2 < 25:
         problems.append("⚠️ m2 parece demasiado bajo (<25)")
     if hab and m2 and hab > m2 // 8:
@@ -170,8 +152,6 @@ def validate_slots(slots: dict) -> list:
     if precio is not None and precio <= 0:
         problems.append("⚠️ Precio debe ser mayor que 0")
     return problems
-
-
 def is_missing_value(field: str, value):
     """
     Considera faltante:
@@ -184,12 +164,8 @@ def is_missing_value(field: str, value):
     if isinstance(value, str) and value.strip() == "":
         return True
     return False
-
-
 def missing_required(slots: dict) -> list:
     return [k for k in REQUIRED_SLOTS if is_missing_value(k, slots.get(k))]
-
-
 # Mapeo campo -> pregunta en lenguaje natural
 FIELD_QUESTIONS = {
     "precio": "¿Cuál es el precio mensual en euros?",
@@ -202,13 +178,9 @@ FIELD_QUESTIONS = {
     "amueblado": "¿Está amueblado el piso? (sí/no)",
     "mascotas": "¿Se aceptan mascotas? (sí/no)",
 }
-
-
 def question_for_field(field: str) -> str:
     """Devuelve la pregunta adecuada para un campo concreto."""
     return FIELD_QUESTIONS.get(field, f"¿Puedes facilitar el dato para el campo '{field}'?")
-
-
 def make_questions(slots: dict) -> list[str]:
     """Devuelve la lista de preguntas pendientes según los campos requeridos que falten."""
     qs = []
@@ -216,8 +188,6 @@ def make_questions(slots: dict) -> list[str]:
         if is_missing_value(f, slots.get(f)):
             qs.append(question_for_field(f))
     return qs
-
-
 def make_summary(slots: dict) -> str:
     asc = slots.get("ascensor")
     asc_txt = "con ascensor" if asc else "sin ascensor"
@@ -232,15 +202,11 @@ def make_summary(slots: dict) -> str:
         f"💶 {slots.get('precio') or 'n/d'} €/mes | 📅 Disponible {slots.get('disponibilidad') or 'n/d'} | "
         f"{amu_txt}, {mas_txt}."
     )
-
-
 SPANISH_MONTHS = {
     "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
     "julio": 7, "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10,
     "noviembre": 11, "diciembre": 12
 }
-
-
 def parse_number(text: str) -> int | None:
     """Extrae el primer número razonable del texto (soporta 1.200, 1 200, 1200, 1.200,50 -> 1200)."""
     if not text:
@@ -257,8 +223,6 @@ def parse_number(text: str) -> int | None:
         return int(float(num))
     except:
         return None
-
-
 def parse_bool(text: str) -> bool | None:
     """Convierte respuestas tipo sí/no en True/False. Busca palabras típicas."""
     if not text:
@@ -274,8 +238,6 @@ def parse_bool(text: str) -> bool | None:
     if any(w in t.split() for w in no):
         return False
     return None
-
-
 def parse_date_es(text: str) -> str | None:
     """
     Intenta devolver YYYY-MM-DD a partir de formatos:
@@ -287,16 +249,13 @@ def parse_date_es(text: str) -> str | None:
     if not text:
         return None
     t = text.strip().lower()
-
     # inmediata
     if "inmediata" in t or "ya" in t or "hoy" in t:
         return datetime.today().date().isoformat()
-
     # ISO directo
     m = re.match(r"^\s*(\d{4})-(\d{2})-(\d{2})\s*$", t)
     if m:
         return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
-
     # DD/MM/YYYY o DD-MM-YYYY
     m = re.match(r"^\s*(\d{1,2})[/-](\d{1,2})[/-](\d{4})\s*$", t)
     if m:
@@ -305,7 +264,6 @@ def parse_date_es(text: str) -> str | None:
             return datetime(yyyy, mm, dd).date().isoformat()
         except:
             return None
-
     # '15 de diciembre de 2025'
     m = re.match(r"^\s*(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})\s*$", t)
     if m:
@@ -318,10 +276,7 @@ def parse_date_es(text: str) -> str | None:
                 return datetime(yyyy, mm, dd).date().isoformat()
             except:
                 return None
-
     return None
-
-
 def normalize_field(field: str, text: str, *, smart_fallback: bool = bool(int(os.getenv("SMART_FALLBACK", "0")))) -> object:
     """
     Devuelve el valor normalizado para un campo dado.
@@ -330,7 +285,6 @@ def normalize_field(field: str, text: str, *, smart_fallback: bool = bool(int(os
     if text is None:
         return None
     raw = text.strip()
-
     if field == "precio":
         v = parse_number(raw)
         if v is not None:
@@ -361,7 +315,6 @@ def normalize_field(field: str, text: str, *, smart_fallback: bool = bool(int(os
     elif field == "barrio_ciudad":
         # Limpieza básica; más normalización vendrá en M2 si queréis
         return raw
-
     # Si no pudimos normalizar y tenemos fallback “barato” activado:
     if smart_fallback:
         try:
@@ -386,11 +339,8 @@ def normalize_field(field: str, text: str, *, smart_fallback: bool = bool(int(os
             return ans
         except Exception:
             pass
-
     # Último recurso: devolver el texto crudo (como antes)
     return raw
-
-
 # ------------------------------
 # Estado e interfaz
 # ------------------------------
@@ -410,80 +360,182 @@ def init_state():
     # campo que estamos preguntando ahora
     if "current_question_field" not in st.session_state:
         st.session_state.current_question_field = None
-
-
 APP_CSS = """
 <style>
-/* Ajustar padding superior de la página para reducir espacio en blanco */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+    color: #1f2937;
+}
+/* Main container adjustments */
 .main .block-container {
-  padding-top: 0.5rem;
-  padding-bottom: 2rem;
+    padding-top: 1rem;
+    padding-bottom: 3rem;
+    max_width: 1200px;
 }
-
-/* Contenedor tipo “card” */
+/* Cards */
 .rm-card {
-  border: 1px solid #e6e6e6; border-radius: 16px; padding: 16px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.04); background: #fff;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    margin-bottom: 1.5rem;
+    transition: box-shadow 0.2s ease;
 }
-.rm-chip {
-  display:inline-block; padding:4px 10px; border-radius:999px;
-  border:1px solid #e6e6e6; margin-right:6px; font-size:12px;
-  background:#fafafa;
+.rm-card:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
 }
-.rm-muted { color:#666; font-size:12px; }
-
-/* Cabecera tipo hero con imagen de fondo */
+/* Hero Section */
 .rm-hero {
-  background-image: url('https://images.unsplash.com/photo-1523217582562-09d0def993a6?auto=format&fit=crop&w=1600&q=80');
-  background-size: cover;
-  background-position: center;
-  border-radius: 20px;
-  margin-bottom: 1.5rem;
-  min-height: 150px;
-  position: relative;
+    background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+    border-radius: 16px;
+    padding: 3rem 2rem;
+    margin-bottom: 2rem;
+    color: white;
+    box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.2);
+    position: relative;
+    overflow: hidden;
 }
-.rm-hero-overlay {
-  background: rgba(0,0,0,0.35);
-  border-radius: 20px;
-  padding: 18px 28px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  height: 100%;
+.rm-hero::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-image: url('https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=1600&q=80');
+    background-size: cover;
+    background-position: center;
+    opacity: 0.15;
+    mix-blend-mode: overlay;
+}
+.rm-hero-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
 }
 .rm-hero-icon {
-  font-size: 40px;
+    font-size: 3.5rem;
+    background: rgba(255,255,255,0.2);
+    width: 80px; height: 80px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    backdrop-filter: blur(4px);
 }
 .rm-hero-text h1 {
-  margin: 0;
-  color: #ffffff;
-  font-size: 32px;
+    margin: 0;
+    font-weight: 700;
+    font-size: 2.25rem;
+    color: white;
+    letter-spacing: -0.025em;
 }
 .rm-hero-text p {
-  margin: 4px 0 0 0;
-  color: #f3f3f3;
-  font-size: 14px;
+    margin: 0.5rem 0 0 0;
+    font-size: 1.1rem;
+    color: rgba(255,255,255,0.9);
 }
+/* Chat Bubbles */
+.chat-message {
+    padding: 1rem;
+    border-radius: 12px;
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 1rem;
+    animation: fadeIn 0.3s ease;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+.chat-message.user {
+    background-color: #f3f4f6;
+    border-bottom-right-radius: 2px;
+}
+.chat-message.assistant {
+    background-color: #eff6ff;
+    border: 1px solid #dbeafe;
+    border-bottom-left-radius: 2px;
+}
+.chat-avatar {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+.chat-content {
+    flex-grow: 1;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+/* Sidebar */
+[data-testid="stSidebar"] {
+    background-color: #f9fafb;
+    border-right: 1px solid #e5e7eb;
+}
+[data-testid="stSidebar"] h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #374151;
+    margin-top: 1rem;
+}
+/* Inputs & Widgets */
+.stTextInput input, .stNumberInput input, .stSelectbox, .stTextArea textarea {
+    border-radius: 8px;
+    border-color: #d1d5db;
+}
+.stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 1px #4f46e5;
+}
+.stButton button {
+    border-radius: 8px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+.stButton button[kind="primary"] {
+    background: #4f46e5;
+    border: none;
+    box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.3);
+}
+.stButton button[kind="primary"]:hover {
+    background: #4338ca;
+    box-shadow: 0 6px 8px -1px rgba(79, 70, 229, 0.4);
+}
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 2rem;
+    border-bottom: 1px solid #e5e7eb;
+}
+.stTabs [data-baseweb="tab"] {
+    height: 3rem;
+    white-space: nowrap;
+    background-color: transparent;
+    border: none;
+    color: #6b7280;
+    font-weight: 500;
+}
+.stTabs [aria-selected="true"] {
+    color: #4f46e5;
+    border-bottom: 2px solid #4f46e5;
+}
+/* Utilities */
+.text-sm { font-size: 0.875rem; }
+.text-muted { color: #6b7280; }
+.font-bold { font-weight: 600; }
 </style>
 """
-
-
 def app():
     st.set_page_config(page_title="RentMatch AI — Alta del piso", page_icon="🏠", layout="wide")
     st.markdown(APP_CSS, unsafe_allow_html=True)
-
     # Estado inicial + CSV
     init_state()
     ensure_csv_schema()
-
     # Cabecera con imagen de fondo
     st.markdown(
         """
         <div class="rm-hero">
-          <div class="rm-hero-overlay">
+          <div class="rm-hero-content">
             <div class="rm-hero-icon">🏠</div>
             <div class="rm-hero-text">
-              <h1>RentMatch AI — M1</h1>
+              <h1>RentMatch AI</h1>
               <p>Alta conversacional del piso · Demo Cloud</p>
             </div>
           </div>
@@ -491,14 +543,12 @@ def app():
         """,
         unsafe_allow_html=True,
     )
-
     # Sidebar con estado y acciones rápidas
     with st.sidebar:
         st.write("### Progreso")
         done = sum(1 for k in REQUIRED_SLOTS if not is_missing_value(k, st.session_state.slots.get(k)))
         st.progress(done / len(REQUIRED_SLOTS))
         st.write(f"Completados: **{done}/{len(REQUIRED_SLOTS)}**")
-
         st.write("### Pasos")
         st.markdown(
             "- 1) Describe y completa los datos del piso\n"
@@ -516,22 +566,18 @@ def app():
             "<span class='rm-muted'>Los datos se normalizan localmente y se envían a n8n al guardar.</span>",
             unsafe_allow_html=True
         )
-
     # Pestañas: Paso 1 (piso), Paso 2 (preferencias) y datos
     tab_piso, tab_prefs, tab_datos = st.tabs(
         ["🏠 Paso 1 · Piso", "👥 Paso 2 · Inquilino", "📊 Datos & Hooks"]
     )
-
     # ===== TAB PASO 1: Conversación (izq) + Ficha (dcha) =====
     with tab_piso:
         col_chat, col_ficha = st.columns([2, 1])
-
         # -------- Conversación --------
         with col_chat:
             st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
             st.subheader("Describe tu piso")
             st.caption("Escribe libremente. Solo te preguntaremos lo imprescindible.")
-
             # 1) DESCRIPCIÓN INICIAL DEL PISO
             if not st.session_state.descripcion_original:
                 desc_text = st.text_area(
@@ -547,14 +593,12 @@ def app():
                             {"role": "user", "content": desc_text}
                         )
                         st.session_state.descripcion_original = desc_text
-
                         # Extraer slots con LLM
                         with st.spinner("Analizando descripción…"):
                             extracted = extract_slots(desc_text)
                         for k in ALL_SLOTS:
                             if extracted.get(k) is not None:
                                 st.session_state.slots[k] = extracted[k]
-
                         # Mensaje de cierre de esta fase
                         bot = (
                             "Gracias, he leído la descripción y he rellenado los datos que he podido. "
@@ -568,15 +612,12 @@ def app():
                     "Usa el chat para responder dudas y el botón **«Comprobar campos obligatorios»** "
                     "para que te pregunte por los campos que falten."
                 )
-
             st.write("")
-
             # 2) BOTÓN SIEMPRE VISIBLE (DESACTIVADO HASTA QUE HAY DESCRIPCIÓN)
             check_click = st.button(
                 "🔍 Comprobar campos obligatorios",
                 disabled=not bool(st.session_state.descripcion_original),
             )
-
             if check_click:
                 missing = missing_required(st.session_state.slots)
                 if missing:
@@ -595,19 +636,16 @@ def app():
                         "<span style='color:#1f6feb; font-weight:bold;'>3) Completa tus preferencias y pulsa «Guardar piso»</span>"
                     )
                     st.session_state.messages.append({"role": "assistant", "content": bot})
-
             # 3) CHAT PARA RESPONDER A LAS PREGUNTAS
             prompt = st.chat_input("Responde a las preguntas o añade comentarios…")
             if prompt:
                 st.session_state.messages.append({"role": "user", "content": prompt})
-
                 field = st.session_state.current_question_field
                 if field:
                     # Interpretar la respuesta como valor del campo que se está preguntando
                     value = normalize_field(field, prompt)
                     st.session_state.slots[field] = value
                     st.session_state.current_question_field = None
-
                     st.session_state.messages.append(
                         {
                             "role": "assistant",
@@ -629,70 +667,90 @@ def app():
                             ),
                         }
                     )
-
             # 4) HISTÓRICO DE MENSAJES
             st.write("---")
             for msg in st.session_state.messages:
-                role_icon = "🤖" if msg["role"] == "assistant" else "👤"
-                st.markdown(f"**{role_icon}** {msg['content']}", unsafe_allow_html=True)
-
+                is_user = msg["role"] == "user"
+                css_class = "user" if is_user else "assistant"
+                avatar = "👤" if is_user else "🤖"
+                
+                st.markdown(
+                    f"""
+                    <div class="chat-message {css_class}">
+                        <div class="chat-avatar">{avatar}</div>
+                        <div class="chat-content">{msg['content']}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
             st.markdown("</div>", unsafe_allow_html=True)
-
         # -------- Ficha del piso --------
         with col_ficha:
             st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
             st.subheader("Ficha del anuncio")
-
             # Campos en dos columnas
+            st.markdown("##### 📝 Datos Principales")
             c1, c2 = st.columns(2)
             with c1:
-                for k in ["precio", "barrio_ciudad", "m2", "habitaciones", "banos", "disponibilidad"]:
+                for k in ["precio", "m2", "habitaciones", "banos"]:
                     v = st.session_state.slots.get(k)
                     st.session_state.slots[k] = st.text_input(
-                        k, value="" if v is None else str(v)
+                        k.capitalize(), value="" if v is None else str(v)
                     )
             with c2:
-                for k in ["planta", "ascensor", "amueblado", "mascotas", "estado"]:
+                for k in ["planta", "disponibilidad", "estado"]:
                     v = st.session_state.slots.get(k)
                     st.session_state.slots[k] = st.text_input(
-                        k, value="" if v is None else str(v)
+                        k.capitalize(), value="" if v is None else str(v)
                     )
-
+            st.markdown("##### 📍 Ubicación")
+            st.session_state.slots["barrio_ciudad"] = st.text_input(
+                "Barrio / Ciudad", 
+                value="" if st.session_state.slots.get("barrio_ciudad") is None else str(st.session_state.slots.get("barrio_ciudad"))
+            )
             # Dirección exacta para enriquecimiento (opcional)
             st.session_state.direccion_completa = st.text_input(
-                "Dirección completa (para enriquecimiento M2, opcional)",
+                "Dirección completa (opcional, para enriquecimiento)",
                 value=st.session_state.direccion_completa
             )
-
+            st.markdown("##### ✨ Características")
+            # Usar chips o checkbox para booleanos podría ser mejor, pero mantendremos text_input por compatibilidad rápida
+            # o mejor, usaremos st.toggle para los booleanos si es posible, pero el código original usa text_input.
+            # Mantendremos text_input pero agrupados.
+            c3, c4 = st.columns(2)
+            with c3:
+                for k in ["ascensor", "amueblado"]:
+                    v = st.session_state.slots.get(k)
+                    st.session_state.slots[k] = st.text_input(
+                        k.capitalize(), value="" if v is None else str(v)
+                    )
+            with c4:
+                for k in ["mascotas"]:
+                    v = st.session_state.slots.get(k)
+                    st.session_state.slots[k] = st.text_input(
+                        k.capitalize(), value="" if v is None else str(v)
+                    )
             st.write("---")
             st.write("**Resumen generado por la IA:**")
             st.info(make_summary(st.session_state.slots))
-
             problems = validate_slots(st.session_state.slots)
             if problems:
                 st.warning(" ; ".join(problems))
-
             st.caption(
                 "Cuando tengas esta ficha lista, pasa al **Paso 2 · Inquilino** para definir preferencias y guardar el piso."
             )
-
             st.markdown("</div>", unsafe_allow_html=True)
-
     # ===== TAB PASO 2: Preferencias sobre el inquilino + Guardar =====
     with tab_prefs:
         st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
         st.subheader("Preferencias sobre el inquilino")
-
         st.caption(
             "Paso 2 de 2 · Estas preferencias se usarán después para priorizar candidatos cuando haya varias solicitudes."
         )
-
         # Pequeño resumen del piso arriba, para contexto
         st.write("**Resumen del piso:**")
         st.info(make_summary(st.session_state.slots))
-
         st.write("---")
-
         # Widgets de preferencias
         max_ocupantes = st.number_input(
             "Número máximo de ocupantes",
@@ -701,13 +759,11 @@ def app():
             step=1,
             key="max_ocupantes"
         )
-
         admite_mascotas_inquilino_str = st.selectbox(
             "¿Aceptarías inquilinos con mascotas?",
             ["Sí", "No"],
             key="admite_mascotas_inquilino_str"
         )
-
         edad_minima = st.number_input(
             "Edad mínima de los inquilinos (opcional)",
             min_value=0,
@@ -715,20 +771,17 @@ def app():
             step=1,
             key="edad_minima"
         )
-
         tipos_inquilino_preferidos_list = st.multiselect(
             "Tipo de inquilino preferido",
             ["Individuo", "Pareja", "Familia", "Estudiantes", "Compartir piso"],
             key="tipos_inquilino_preferidos_list"
         )
-
         ingreso_minimo = st.number_input(
             "Ingreso mínimo mensual total requerido (opcional, €)",
             min_value=0,
             step=100,
             key="ingreso_minimo"
         )
-
         duracion_minima = st.number_input(
             "Duración mínima deseada del alquiler (meses)",
             min_value=1,
@@ -736,7 +789,6 @@ def app():
             step=1,
             key="duracion_minima"
         )
-
         duracion_maxima = st.number_input(
             "Duración máxima aceptada (opcional, meses)",
             min_value=0,
@@ -744,42 +796,35 @@ def app():
             step=1,
             key="duracion_maxima"
         )
-
         contrato_estable_str = st.selectbox(
             "¿Quieres contrato laboral estable (indefinido/fijo) como preferencia?",
             ["Sí", "No"],
             key="contrato_estable_str"
         )
-
         autonomo_aceptado_str = st.selectbox(
             "¿Aceptas autónomos?",
             ["Sin preferencia", "Sí", "No"],
             key="autonomo_aceptado_str"
         )
-
         freelance_aceptado_str = st.selectbox(
             "¿Aceptas freelance / ingresos variables?",
             ["Sin preferencia", "Sí", "No"],
             key="freelance_aceptado_str"
         )
-
         fumadores_permitidos_str = st.selectbox(
             "¿Permites fumadores dentro de la vivienda?",
             ["Sí", "No"],
             key="fumadores_permitidos_str"
         )
-
         perfil_tranquilo_str = st.selectbox(
             "¿Prefieres explícitamente un perfil tranquilo?",
             ["Sin preferencia", "Sí", "No"],
             key="perfil_tranquilo_str"
         )
-
         normas_especiales = st.text_area(
             "Normas especiales de la vivienda / comunidad (opcional)",
             key="normas_especiales"
         )
-
         prioridades_seleccion = st.selectbox(
             "¿Qué pesa más para ti al elegir un inquilino?",
             [
@@ -792,12 +837,10 @@ def app():
             ],
             key="prioridades_seleccion"
         )
-
         observaciones_perfil_inquilino = st.text_area(
             "Observaciones sobre el tipo de inquilino deseado (opcional)",
             key="observaciones_perfil_inquilino"
         )
-
         st.write("---")
         cta_col1, cta_col2 = st.columns([1, 2])
         with cta_col1:
@@ -806,7 +849,6 @@ def app():
             st.caption(
                 "Se almacenará en CSV (efímero) y se enviará a n8n / Supabase si están configurados."
             )
-
         if save_click:
             # Validación de campos obligatorios de preferencias
             pref_errors = []
@@ -816,7 +858,6 @@ def app():
                 pref_errors.append("Indica el número máximo de ocupantes.")
             if duracion_minima < 1:
                 pref_errors.append("Indica la duración mínima deseada del alquiler (meses).")
-
             if pref_errors:
                 st.error("Faltan datos en preferencias del inquilino: " + " | ".join(pref_errors))
             else:
@@ -826,7 +867,6 @@ def app():
                 else:
                     # Generar ID del piso
                     id_piso = str(uuid.uuid4())
-
                     # Campos base del piso (desde slots)
                     precio = st.session_state.slots.get("precio")
                     barrio_ciudad = st.session_state.slots.get("barrio_ciudad")
@@ -839,17 +879,14 @@ def app():
                     mascotas = st.session_state.slots.get("mascotas")
                     disponibilidad = st.session_state.slots.get("disponibilidad")
                     estado = st.session_state.slots.get("estado")
-
                     # Campo mascotas obligatorio en BD: si falta, guardarlo como cadena vacía
                     if mascotas is None:
                         mascotas = ""
-
                     # Construir registro COMPLETO (piso + preferencias)
                     rec = {
                         "id_piso": id_piso,
                         "descripcion_original": st.session_state.descripcion_original,
                         "descripcion_ia": make_summary(st.session_state.slots),
-
                         # Datos del piso
                         "precio": precio,
                         "barrio_ciudad": barrio_ciudad,
@@ -862,13 +899,11 @@ def app():
                         "mascotas": mascotas,
                         "disponibilidad": disponibilidad,
                         "estado": estado,
-
                         # Campos M2/M3
                         "distancia_metro_m": None,
                         "score_conectividad": None,
                         "score_visual_global": None,
                         "fotos_faltantes_sugeridas": None,
-
                         # Preferencias del arrendador
                         "max_ocupantes": int(max_ocupantes),
                         "admite_mascotas_inquilino": True if admite_mascotas_inquilino_str == "Sí" else False,
@@ -885,28 +920,21 @@ def app():
                         "normas_especiales": normas_especiales or None,
                         "prioridades_seleccion": prioridades_seleccion,
                         "observaciones_perfil_inquilino": observaciones_perfil_inquilino or None,
-
                         "created_at": datetime.utcnow().isoformat(),
                     }
-
                     # DEBUG: ver en pantalla qué se está enviando
                     st.write("Payload enviado a n8n / Supabase:")
                     st.json(rec)
-
                     save_listing(rec)
-
                     # Guardar en estado para botones posteriores
                     st.session_state.last_saved_property_id = id_piso
                     st.session_state.last_saved_record = rec
-
-                    st.success("✅ Guardado correcto. Enviado a n8n/Supabase si procede.")
-
+                    st.toast("✅ Guardado correcto. Enviado a n8n/Supabase si procede.", icon="💾")
+                    st.success("El piso se ha guardado correctamente.")
         st.write("---")
         st.subheader("Acciones sobre este piso")
-
         id_piso_guardado = st.session_state.last_saved_property_id
         rec_guardado = st.session_state.last_saved_record
-
         if not id_piso_guardado or not rec_guardado:
             st.info("Guarda primero el piso para habilitar las acciones adicionales.")
         else:
@@ -927,7 +955,6 @@ def app():
                         st.success("He lanzado el flujo de subida de fotos y scoring en n8n.")
                     except Exception as e:
                         st.error(f"Error lanzando el flujo de fotos: {e}")
-
             # Botón 2: enriquecimiento por Google Maps / servicios (M2 real vía n8n)
             if st.button("📍 Enriquecer datos de la zona (Google Maps)"):
                 direccion = st.session_state.direccion_completa or rec_guardado.get("barrio_ciudad")
@@ -953,21 +980,17 @@ def app():
                         st.success("He lanzado el flujo de enriquecimiento de datos de entorno en n8n.")
                     except Exception as e:
                         st.error(f"Error lanzando el flujo de enriquecimiento: {e}")
-
         st.markdown("</div>", unsafe_allow_html=True)
-
     # ===== TAB: Datos & Hooks (simulados) =====
     with tab_datos:
         st.markdown("<div class='rm-card'>", unsafe_allow_html=True)
         st.subheader("Datos recientes y acciones")
-
         # Mostrar últimas filas del CSV (si existe)
         try:
             df = pd.read_csv(CSV_FILE)
             st.dataframe(df.tail(5), width="stretch")
         except Exception:
             st.caption("No hay datos aún.")
-
         st.write("---")
         st.write("**Hooks de demostración (simulados en local)**")
         hc1, hc2 = st.columns(2)
@@ -991,9 +1014,6 @@ def app():
                     st.toast("Campos de análisis visual simulados añadidos.")
                 except Exception:
                     st.error("No hay registros para actualizar.")
-
         st.markdown("</div>", unsafe_allow_html=True)
-
-
 if __name__ == "__main__":
     app()
