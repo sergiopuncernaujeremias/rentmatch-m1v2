@@ -536,8 +536,8 @@ def app():
             <div class="rm-hero-icon">🏠</div>
             <div class="rm-hero-text">
               <h1>RentMatch AI</h1>
-              <p>Alta y búsqueda conversacional del piso </p>
-              <p>Match de perfil inquilino deseado para el piso </p>
+              <p>   Alta y búsqueda conversacional del piso </p>
+              <p>   Match de perfil del inquilino con preferencias de arrendatario </p>
             </div>
           </div>
         </div>
